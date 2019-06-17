@@ -1,14 +1,13 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.14)
 project(core)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/")
 
-set(PYBIND_DIRECTORY "$ENV{HOME}/phd/libs/pybind11/")
 set(ARMADILLO_LIBRARY "$ENV{HOME}/phd/libs/armadillo/")
-
-find_package(pybind11 PATHS ${PYBIND_DIRECTORY})
-
 include_directories(${ARMADILLO_LIBRARY}/include)
+
+set(PYBIND_DIRECTORY "$ENV{HOME}/phd/libs/pybind11/build/mock_install/share/cmake/")
+find_package(pybind11 CONFIG PATHS ${PYBIND_DIRECTORY})
 
 pybind11_add_module(core src/util.cpp)
 
