@@ -19,5 +19,3 @@
     
 - Edit CMakeLists.txt to reflect the paths of Armadillo and OpenBLAS
 
-- Install core package:
-    pip install -e .
