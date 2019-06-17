@@ -37,6 +37,7 @@ class LinearGaussianDynamics:
     def sample(self, x, u):
         pass
 
+
 class LinearGaussianControl:
     def __init__(self, nb_xdim, nb_udim, nb_steps, init_ctl_sigma=1.):
         self.nb_xdim = nb_xdim

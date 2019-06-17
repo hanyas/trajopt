@@ -9,6 +9,9 @@ from setuptools.command.build_ext import build_ext
 from distutils.version import LooseVersion
 
 
+USE_OPENBLAS = os.environ.get('USE_OPENBLAS', False)
+
+
 class CMakeExtension(Extension):
     def __init__(self, name, sourcedir=''):
         Extension.__init__(self, name, sources=[])
@@ -32,15 +35,13 @@ class CMakeBuild(build_ext):
             self.build_extension(ext)
 
     def build_extension(self, ext):
-        extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
-        cmake_args = ['-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + extdir + '/trajopt/gps',
-                      '-DPYTHON_EXECUTABLE=' + sys.executable]
+        cmake_args = ['-DPYTHON_EXECUTABLE=' + sys.executable,
+                      '-DUSE_OPENBLAS=' + str(USE_OPENBLAS)]
 
         cfg = 'Debug' if self.debug else 'Release'
         build_args = ['--config', cfg]
 
         if platform.system() == "Windows":
-            cmake_args += ['-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{}={}'.format(cfg.upper(), extdir)]
             if sys.maxsize > 2**32:
                 cmake_args += ['-A', 'x64']
             build_args += ['--', '/m']
