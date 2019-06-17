@@ -26,6 +26,10 @@
    ```shell
    USE_THREAD=1 NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
    ```     
+   * When using a cluster with OpenMPI consider rather this command
+   ```shell
+   USE_THREAD=0 NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
+   ```     
    * Configure Armadillo, no need to make:<br/>
     ```shell
     ./configure
