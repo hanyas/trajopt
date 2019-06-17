@@ -33,7 +33,7 @@ class CMakeBuild(build_ext):
 
     def build_extension(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
-        cmake_args = ['-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + extdir + '/gps',
+        cmake_args = ['-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + extdir + '/trajopt/gps',
                       '-DPYTHON_EXECUTABLE=' + sys.executable]
 
         cfg = 'Debug' if self.debug else 'Release'
@@ -58,13 +58,13 @@ class CMakeBuild(build_ext):
 
 
 setup(
-    name='gps',
+    name='trajopt',
     version='0.0.1',
     author='Hany Abdulsamad',
     author_email='hany@robot-learning.de',
-    description='Guided policy search in c/c++',
+    description='A toolbox for trajectory optimization',
     long_description='',
-    ext_modules=[CMakeExtension('gps', './gps/')],
+    ext_modules=[CMakeExtension('gps', './trajopt/gps/')],
     cmdclass=dict(build_ext=CMakeBuild),
     zip_safe=False,
 )

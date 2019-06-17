@@ -10,7 +10,7 @@ import numpy as np
 import scipy as sc
 from scipy import optimize
 
-from gps import core
+from trajopt.gps import core
 
 
 class LinearGaussianDynamics:

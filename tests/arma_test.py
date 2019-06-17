@@ -1,6 +1,6 @@
 import numpy as np
 import numpy.random as npr
-from gps import core
+from trajopt import core
 
 npr.seed(1337)
 

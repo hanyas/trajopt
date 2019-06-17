@@ -7,15 +7,16 @@
 
 
 import gym
-import gps
+from trajopt.gps import MBGPS
+
 
 # lqr task
 env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 100
 
-alg = gps.MBGPS(env, nb_steps=100,
-                kl_bound=50.,
-                init_ctl_sigma=1.)
+alg = MBGPS(env, nb_steps=100,
+            kl_bound=50.,
+            init_ctl_sigma=1.)
 
 # run gps
 for _ in range(2):

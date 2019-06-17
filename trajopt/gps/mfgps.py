@@ -13,7 +13,7 @@ from scipy import optimize
 from mimo import distributions, models
 from mimo.util.text import progprint_xrange
 
-from gps import core
+from trajopt.gps import core
 
 
 class LinearGaussianDynamics:
