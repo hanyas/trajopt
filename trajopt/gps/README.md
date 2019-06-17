@@ -11,8 +11,6 @@
     * http://arma.sourceforge.net/download.html
 
 - ### Using Aramdillo:
-
-- Install Armadillo:
    * Extract Armadillo to ~/libs
    * Configure and make Aramdillo:<br/>
    ```shell
@@ -23,8 +21,6 @@
     * Edit CMakeLists.txt to reflect the paths of Armadillo
 
 - ### Using OpenBLAS:
-
-- Install OpenBLAS:
    * https://github.com/xianyi/OpenBLAS.git
    * Make OpenBLAS
    ```shell
