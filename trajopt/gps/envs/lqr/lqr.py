@@ -115,12 +115,12 @@ class LQR(gym.Env):
 
     def step(self, u):
         self.state = self._model.step(self.state, u)
-        return self.state, [], False, {'dyn': self._model.dyn(), 'rwrd': self._model.rwrd()}
+        return self.state, [], False, {}
 
     def reset(self):
         _mu_0, _sigma_0 = self._model.init()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
-        return np.array(self.state)
+        return self.state
 
     def render(self, mode='human'):
         return

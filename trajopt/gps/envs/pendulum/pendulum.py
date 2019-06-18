@@ -128,7 +128,7 @@ class Pendulum(gym.Env):
 
     def step(self, u):
         self.state = self._model.step(self.state, u)
-        return self.state, [], False, {'dyn': self._model.dyn(), 'rwrd': self._model.rwrd()}
+        return self.state, [], False, {}
 
     def reset(self):
         _mu_0, _sigma_0 = self._model.init()
