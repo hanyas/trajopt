@@ -24,7 +24,7 @@ class _PendulumBase:
         self._Rxu = np.zeros((self.nb_xdim, self.nb_udim))
         self._r0 = self._g.T @ np.diag(xw) @ self._g
 
-        self._sigma = 1.e-2 * np.eye(self.nb_xdim)
+        self._sigma = 1.e-4 * np.eye(self.nb_xdim)
 
         self.xmax = np.array([np.inf, 25.0])
         self.umax = 2.0
@@ -101,7 +101,7 @@ class Pendulum(gym.Env):
     def __init__(self):
         self._dt = 0.025
         self._xw = - self._dt * 1. * np.array([1.e1, 1.e-1])
-        self._uw = - self._dt * 1. * np.array([1.e-3])
+        self._uw = - self._dt * 1. * np.array([1.e-2])
         self._g = np.array([2. * np.pi, 0.])
 
         self._model = _PendulumBase(self._dt, self._xw, self._uw, self._g)
