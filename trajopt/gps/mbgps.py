@@ -248,17 +248,25 @@ class MBGPS:
         plt.figure()
         t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
 
-        plt.subplot(2, 1, 1)
+        plt.subplot(3, 1, 1)
         plt.plot(t, self.sdist.mu[0, :], '-b')
         lb = self.sdist.mu[0, :] - 2. * np.sqrt(self.sdist.sigma[0, 0, :])
         ub = self.sdist.mu[0, :] + 2. * np.sqrt(self.sdist.sigma[0, 0, :])
         plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
 
-        plt.subplot(2, 1, 2)
+        plt.subplot(3, 1, 2)
         plt.plot(t, self.sdist.mu[1, :], '-r')
         lb = self.sdist.mu[1, :] - 2. * np.sqrt(self.sdist.sigma[1, 1, :])
         ub = self.sdist.mu[1, :] + 2. * np.sqrt(self.sdist.sigma[1, 1, :])
         plt.fill_between(t, lb, ub, color='red', alpha='0.1')
+
+        t = np.linspace(0, self.nb_steps, self.nb_steps)
+
+        plt.subplot(3, 1, 3)
+        plt.plot(t, self.adist.mu[0, :], '-g')
+        lb = self.adist.mu[0, :] - 2. * np.sqrt(self.adist.sigma[0, 0, :])
+        ub = self.adist.mu[0, :] + 2. * np.sqrt(self.adist.sigma[0, 0, :])
+        plt.fill_between(t, lb, ub, color='green', alpha='0.1')
 
         plt.show()
 
