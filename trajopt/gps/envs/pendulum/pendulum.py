@@ -27,7 +27,7 @@ class _PendulumBase:
         self._sigma = 1.e-4 * np.eye(self.nb_xdim)
 
         self.xmax = np.array([np.inf, 25.0])
-        self.umax = 2.0
+        self.umax = 5.0
 
         # damping
         self._k = 1.e-3
@@ -36,7 +36,7 @@ class _PendulumBase:
         self._dydu = jacobian(self.step, 1)
 
     def step(self, x, u):
-        u = np.clip(u, -self.umax, self.umax)
+        # u = np.clip(u, -self.umax, self.umax)
         th, dth = x
 
         g, m, l = 9.80665, 1.0, 1.0
@@ -49,7 +49,7 @@ class _PendulumBase:
 
         return xn
 
-    def rwrd(self, x=None, u=None):
+    def get_rwrd(self, x=None, u=None):
         T = x.shape[1]
         _Rxx = np.zeros((self.nb_xdim, self.nb_xdim, T + 1))
         _rx = np.zeros((self.nb_xdim, T + 1))
@@ -76,7 +76,7 @@ class _PendulumBase:
 
         return _Rxx, _rx, _Ruu, _ru, _Rxu, _r0
 
-    def dyn(self, x=None, u=None):
+    def get_dyn(self, x=None, u=None):
         T = x.shape[1] - 1
         _A = np.zeros((self.nb_xdim, self.nb_xdim, T))
         _B = np.zeros((self.nb_xdim, self.nb_udim, T))
@@ -91,7 +91,7 @@ class _PendulumBase:
 
         return _A, _B, _c, _sigma
 
-    def init(self):
+    def get_init(self):
         # mu, sigma
         return np.array([np.pi, 0.]), 1.e-4 * np.eye(2)
 
@@ -100,8 +100,8 @@ class Pendulum(gym.Env):
 
     def __init__(self):
         self._dt = 0.025
-        self._xw = - self._dt * 1. * np.array([1.e1, 1.e-1])
-        self._uw = - self._dt * 1. * np.array([1.e-2])
+        self._xw = - self._dt * 1. * np.array([1.e2, 1.e-1])
+        self._uw = - self._dt * 1. * np.array([1.e-3])
         self._g = np.array([2. * np.pi, 0.])
 
         self._model = _PendulumBase(self._dt, self._xw, self._uw, self._g)
@@ -127,10 +127,10 @@ class Pendulum(gym.Env):
         return [seed]
 
     def step(self, u):
-        self.state = self._model.step(self.state, u)
+        self.state = self.model.step(self.state, u)
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self._model.init()
+        _mu_0, _sigma_0 = self._model.get_init()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
         return self.state

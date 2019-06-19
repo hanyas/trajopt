@@ -1,4 +1,5 @@
 from .mbgps import MBGPS
+from .mfgps import MFGPS
 
 from gym.envs.registration import register
 

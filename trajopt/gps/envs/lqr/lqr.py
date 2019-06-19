@@ -24,7 +24,7 @@ class _LQRBase:
         self._B = np.array([[0.], [1.]])
         self._c = np.zeros((2, ))
 
-        self._sigma = 1.e-2 * np.eye(2)
+        self._sigma = 1.e-4 * np.eye(2)
 
         self.xmax = np.array([np.inf, np.inf])
         self.umax = np.inf
@@ -40,7 +40,7 @@ class _LQRBase:
 
         return xn
 
-    def rwrd(self, x=None, u=None):
+    def get_rwrd(self, x=None, u=None):
         T = x.shape[1]
         _Rxx = np.zeros((2, 2, T + 1))
         _rx = np.zeros((2, T + 1))
@@ -63,7 +63,7 @@ class _LQRBase:
 
         return _Rxx, _rx, _Ruu, _ru, _Rxu, _r0
 
-    def dyn(self, x=None, u=None):
+    def get_dyn(self, x=None, u=None):
         T = x.shape[1] - 1
         _A = np.zeros((2, 2, T))
         _B = np.zeros((2, 1, T))
@@ -78,9 +78,10 @@ class _LQRBase:
 
         return _A, _B, _c, _sigma
 
-    def init(self):
+    def get_init(self):
         # mu, sigma
-        return np.array([0., 0.]), 1.e-2 * np.eye(2)
+        return np.array([0., 0.]), 1.e-4 * np.eye(2)
+
 
 class LQR(gym.Env):
 
@@ -118,7 +119,7 @@ class LQR(gym.Env):
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self._model.init()
+        _mu_0, _sigma_0 = self._model.get_init()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
         return self.state
 

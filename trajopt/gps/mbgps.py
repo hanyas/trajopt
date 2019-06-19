@@ -151,6 +151,7 @@ class MBGPS:
     def __init__(self, env, nb_steps, kl_bound, init_ctl_sigma):
 
         self.env = env
+        self.alim = self.env.action_space.high
 
         self.nb_xdim = self.env.observation_space.shape[0]
         self.nb_udim = self.env.action_space.shape[0]
@@ -163,21 +164,39 @@ class MBGPS:
         # create state distribution and initialize first time step
         self.sdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
         for t in range(self.nb_steps + 1):
-            self.sdist.mu[..., t], self.sdist.sigma[..., t] = self.env.unwrapped._model.init()
+            self.sdist.mu[..., t], self.sdist.sigma[..., t] = self.env.unwrapped._model.get_init()
 
         self.adist = GaussianInTime(self.nb_udim, self.nb_steps)
         self.sadist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
-        # create and set linear Gaussian dynamics from env
         self.dyn = LinearGaussianDynamics(self.nb_xdim, self.nb_udim, self.nb_steps)
 
-        # create and set quadratic rewards from env
         self.rwrd = QuadraticReward(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
 
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
 
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
+
+    def sample(self, nb_episodes, nb_steps, stoch=True):
+        data = {'x': np.zeros((self.nb_xdim, nb_steps, nb_episodes)),
+                'u': np.zeros((self.nb_udim, nb_steps, nb_episodes)),
+                'xn': np.zeros((self.nb_xdim, nb_steps, nb_episodes))}
+
+        for n in range(nb_episodes):
+            x = self.env.reset()
+
+            for t in range(nb_steps):
+                u = self.ctl.sample(x, t, stoch)
+
+                data['u'][..., t, n] = u
+                data['x'][..., t, n] = x
+
+                x, _, _, _ = self.env.step(np.clip(u, - self.alim, self.alim))
+
+                data['xn'][..., t, n] = x
+
+        return data
 
     def forward_pass(self, lgc):
         sdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
@@ -272,10 +291,10 @@ class MBGPS:
 
     def run(self):
         # get linear system dynamics around mean traj.
-        self.dyn.params = self.env.unwrapped.model.dyn(self.sdist.mu, self.adist.mu)
+        self.dyn.params = self.env.unwrapped.model.get_dyn(self.sdist.mu, self.adist.mu)
 
         # get quadratic reward around mean traj.
-        self.rwrd.params = self.env.unwrapped.model.rwrd(self.sdist.mu, self.adist.mu)
+        self.rwrd.params = self.env.unwrapped.model.get_rwrd(self.sdist.mu, self.adist.mu)
 
         # current state distribution
         self.sdist, self.adist, self.sadist = self.forward_pass(self.ctl)
