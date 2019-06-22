@@ -10,179 +10,13 @@ import numpy as np
 import scipy as sc
 from scipy import optimize
 
-from mimo import distributions, models
-from mimo.util.text import progprint_xrange
+from trajopt.gps.objects import GaussianInTime, QuadraticReward
+from trajopt.gps.objects import LearnedLinearGaussianDynamics, AnalyticalQuadraticReward
+from trajopt.gps.objects import QuadraticStateValue, QuadraticStateActionValue
+from trajopt.gps.objects import LinearGaussianControl
 
-from trajopt.gps import core
-
-
-class LinearGaussianDynamics:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
-        self.nb_steps = nb_steps
-
-        self.A = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.B = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
-        self.c = np.zeros((self.nb_xdim, self.nb_steps))
-        self.sigma = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        for t in range(self.nb_steps):
-            self.sigma[..., t] = 1e-8 * np.eye(self.nb_xdim)
-
-    @property
-    def params(self):
-        return self.A, self.B, self.c, self.sigma
-
-    @params.setter
-    def params(self, values):
-        self.A, self.B, self.c, self.sigma = values
-
-    def sample(self, x, u):
-        pass
-
-    # def update(self, data):
-    #     for t in range(self.nb_steps):
-    #         _data = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T, data['xn'][:, t, :].T))
-    #
-    #         _hypparams = dict(M=np.zeros((self.nb_xdim, self.nb_xdim + self.nb_udim + 1)),
-    #                           V=1.e6 * np.eye(self.nb_xdim + self.nb_udim + 1),
-    #                           affine=True,
-    #                           psi=np.eye(self.nb_xdim),
-    #                           nu=self.nb_xdim + 2)
-    #         _prior = distributions.MatrixNormalInverseWishart(**_hypparams)
-    #
-    #         _model = distributions.BayesianLinearGaussian(_prior)
-    #         _model = _model.MAP(_data)
-    #
-    #         self.A[..., t] = _model.A[:, :self.nb_xdim]
-    #         self.B[..., t] = _model.A[:, self.nb_xdim:self.nb_xdim + self.nb_udim]
-    #         self.c[..., t] = _model.A[:, -1]
-    #         self.sigma[..., t] = _model.sigma
-
-    def update(self, data):
-        _obs = [data['x'][..., n].T for n in range(data['x'].shape[-1])]
-        _input = [data['u'][..., n].T for n in range(data['u'].shape[-1])]
-
-        from sds.rarhmm_ls import rARHMM
-        rarhmm = rARHMM(nb_states=5, dim_obs=2, dim_act=1)
-        rarhmm.initialize(_obs, _input)
-        rarhmm.em(_obs, _input, nb_iter=50, prec=1e-12, verbose=False)
-
-        _mean_obs = np.mean(data['x'], axis=-1).T
-        _mean_input = np.mean(data['u'], axis=-1).T
-        _, _mean_z = rarhmm.viterbi([_mean_obs], [_mean_input])
-
-        for t in range(self.nb_steps):
-            self.A[..., t] = rarhmm.observations.A[_mean_z[0][t], ...]
-            self.B[..., t] = rarhmm.observations.B[_mean_z[0][t], ...]
-            self.c[..., t] = rarhmm.observations.c[_mean_z[0][t], ...]
-
-class LinearGaussianControl:
-    def __init__(self, nb_xdim, nb_udim, nb_steps, init_ctl_sigma=1.):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
-        self.nb_steps = nb_steps
-
-        self.K = np.zeros((self.nb_udim, self.nb_xdim, self.nb_steps))
-        self.kff = np.zeros((self.nb_udim, self.nb_steps))
-
-        self.sigma = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        for t in range(self.nb_steps):
-            self.sigma[..., t] = init_ctl_sigma * np.eye(self.nb_udim)
-
-    @property
-    def params(self):
-        return self.K, self.kff, self.sigma
-
-    @params.setter
-    def params(self, values):
-        self.K, self.kff, self.sigma = values
-
-    def mean(self, x, t):
-        return np.einsum('kh,h->k', self.K[..., t], x) + self.kff[..., t]
-
-    def sample(self, x, t, stoch=True):
-        mu = self.mean(x, t)
-        if stoch:
-            return np.random.multivariate_normal(mean=mu, cov=self.sigma[..., t])
-        else:
-            return mu
-
-
-class GaussianInTime:
-    def __init__(self, nb_dim, nb_steps):
-        self.nb_dim = nb_dim
-        self.nb_steps = nb_steps
-
-        self.mu = np.zeros((self.nb_dim, self.nb_steps))
-        self.sigma = np.zeros((self.nb_dim, self.nb_dim, self.nb_steps))
-        for t in range(self.nb_steps):
-            self.sigma[..., t] = np.eye(self.nb_dim)
-
-    @property
-    def params(self):
-        return self.mu, self.sigma
-
-    @params.setter
-    def params(self, values):
-        self.mu, self.sigma = values
-
-    def sample(self, x):
-        pass
-
-
-class QuadraticReward:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
-
-        self.nb_steps = nb_steps
-
-        self.Rxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.rx = np.zeros((self.nb_xdim, self.nb_steps))
-
-        self.Ruu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        self.ru = np.zeros((self.nb_udim, self.nb_steps))
-
-        self.Rxu = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
-        self.r0 = np.zeros((self.nb_steps, ))
-
-    @property
-    def params(self):
-        return self.Rxx, self.rx, self.Ruu, self.ru, self.Rxu, self.r0
-
-    @params.setter
-    def params(self, values):
-        self.Rxx, self.rx, self.Ruu, self.ru, self.Rxu, self.r0 = values
-
-
-class QuadraticStateValue:
-    def __init__(self, nb_xdim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_steps = nb_steps
-
-        self.V = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.v = np.zeros((self.nb_xdim, self.nb_steps, ))
-        self.v0 = np.zeros((self.nb_steps, ))
-        self.v0_softmax = np.zeros((self.nb_steps, ))
-
-
-class QuadraticStateActionValue:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
-        self.nb_steps = nb_steps
-
-        self.Qxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.Quu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        self.Qux = np.zeros((self.nb_udim, self.nb_xdim, self.nb_steps))
-
-        self.qx = np.zeros((self.nb_xdim, self.nb_steps, ))
-        self.qu = np.zeros((self.nb_udim, self.nb_steps, ))
-
-        self.q0 = np.zeros((self.nb_steps, ))
-        self.q0_common = np.zeros((self.nb_steps, ))
-        self.q0_softmax = np.zeros((self.nb_steps, ))
+from trajopt.gps.core import kl_divergence, quad_expectation, augment_reward
+from trajopt.gps.core import forward_pass, backward_pass
 
 
 class MFGPS:
@@ -190,6 +24,13 @@ class MFGPS:
     def __init__(self, env, nb_steps, kl_bound, init_ctl_sigma):
 
         self.env = env
+
+        self.env_dyn = self.env.unwrapped.model.dynamics
+        self.env_sigma = self.env.unwrapped.model.sigma
+
+        self.env_rwrd = self.env.unwrapped.model.reward
+        self.env_init = self.env.unwrapped.model.initialize
+
         self.alim = self.env.action_space.high
 
         self.nb_xdim = self.env.observation_space.shape[0]
@@ -203,18 +44,16 @@ class MFGPS:
         # create state distribution and initialize first time step
         self.sdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
         for t in range(self.nb_steps + 1):
-            self.sdist.mu[..., t], self.sdist.sigma[..., t] = self.env.unwrapped._model.get_init()
+            self.sdist.mu[..., t], self.sdist.sigma[..., t] = self.env_init()
 
         self.adist = GaussianInTime(self.nb_udim, self.nb_steps)
         self.sadist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
-        self.dyn = LinearGaussianDynamics(self.nb_xdim, self.nb_udim, self.nb_steps)
-
-        self.rwrd = QuadraticReward(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
-
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
 
+        self.dyn = LearnedLinearGaussianDynamics(self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.rwrd = AnalyticalQuadraticReward(self.env_rwrd, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
 
         self.data = {}
@@ -246,10 +85,10 @@ class MFGPS:
 
         sdist.mu, sdist.sigma,\
         adist.mu, adist.sigma,\
-        sadist.mu, sadist.sigma = core.forward_pass(self.sdist.mu[..., 0], self.sdist.sigma[..., 0],
-                                                    self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
-                                                    lgc.K, lgc.kff, lgc.sigma,
-                                                    self.nb_xdim, self.nb_udim, self.nb_steps)
+        sadist.mu, sadist.sigma = forward_pass(self.sdist.mu[..., 0], self.sdist.sigma[..., 0],
+                                               self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
+                                               lgc.K, lgc.kff, lgc.sigma,
+                                               self.nb_xdim, self.nb_udim, self.nb_steps)
         return sdist, adist, sadist
 
     def backward_pass(self, alpha, agrwrd):
@@ -260,19 +99,19 @@ class MFGPS:
         savalue.Qxx, savalue.Qux, savalue.Quu,\
         savalue.qx, savalue.qu, savalue.q0, savalue.q0_softmax,\
         svalue.V, svalue.v, svalue.v0, svalue.v0_softmax,\
-        lgc.K, lgc.kff, lgc.sigma = core.backward_pass(agrwrd.Rxx, agrwrd.rx, agrwrd.Ruu,
-                                                       agrwrd.ru, agrwrd.Rxu, agrwrd.r0,
-                                                       self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
-                                                       alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
+        lgc.K, lgc.kff, lgc.sigma = backward_pass(agrwrd.Rxx, agrwrd.rx, agrwrd.Ruu,
+                                                  agrwrd.ru, agrwrd.Rxu, agrwrd.r0,
+                                                  self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
+                                                  alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
         return lgc, svalue, savalue
 
     def augment_reward(self, alpha):
         agrwrd = QuadraticReward(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
         agrwrd.Rxx, agrwrd.rx, agrwrd.Ruu,\
-        agrwrd.ru, agrwrd.Rxu, agrwrd.r0 = core.augment_reward(self.rwrd.Rxx, self.rwrd.rx, self.rwrd.Ruu,
-                                                               self.rwrd.ru, self.rwrd.Rxu, self.rwrd.r0,
-                                                               self.ctl.K, self.ctl.kff, self.ctl.sigma,
-                                                               alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
+        agrwrd.ru, agrwrd.Rxu, agrwrd.r0 = augment_reward(self.rwrd.Rxx, self.rwrd.rx, self.rwrd.Ruu,
+                                                          self.rwrd.ru, self.rwrd.Rxu, self.rwrd.r0,
+                                                          self.ctl.K, self.ctl.kff, self.ctl.sigma,
+                                                          alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
         return agrwrd
 
     def dual(self, alpha):
@@ -286,9 +125,9 @@ class MFGPS:
         sdist, adist, sadist = self.forward_pass(lgc)
 
         # dual expectation
-        dual = core.quad_expectation(sdist.mu[..., 0], sdist.sigma[..., 0],
-                                     svalue.V[..., 0], svalue.v[..., 0],
-                                     svalue.v0_softmax[..., 0])
+        dual = quad_expectation(sdist.mu[..., 0], sdist.sigma[..., 0],
+                                svalue.V[..., 0], svalue.v[..., 0],
+                                svalue.v0_softmax[..., 0])
         dual += alpha * self.kl_bound
 
         # gradient
@@ -297,10 +136,10 @@ class MFGPS:
         return np.array([dual]), np.array([grad])
 
     def kldiv(self, lgc, sdist):
-        return core.kl_divergence(lgc.K, lgc.kff, lgc.sigma,
-                                  self.ctl.K, self.ctl.kff, self.ctl.sigma,
-                                  sdist.mu, sdist.sigma,
-                                  self.nb_xdim, self.nb_udim, self.nb_steps)
+        return kl_divergence(lgc.K, lgc.kff, lgc.sigma,
+                             self.ctl.K, self.ctl.kff, self.ctl.sigma,
+                             sdist.mu, sdist.sigma,
+                             self.nb_xdim, self.nb_udim, self.nb_steps)
 
     def plot(self):
         import matplotlib.pyplot as plt
@@ -308,37 +147,33 @@ class MFGPS:
         plt.figure()
         t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
 
-        plt.subplot(3, 1, 1)
-        plt.plot(t, self.sdist.mu[0, :], '-b')
-        lb = self.sdist.mu[0, :] - 2. * np.sqrt(self.sdist.sigma[0, 0, :])
-        ub = self.sdist.mu[0, :] + 2. * np.sqrt(self.sdist.sigma[0, 0, :])
-        plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
-
-        plt.subplot(3, 1, 2)
-        plt.plot(t, self.sdist.mu[1, :], '-r')
-        lb = self.sdist.mu[1, :] - 2. * np.sqrt(self.sdist.sigma[1, 1, :])
-        ub = self.sdist.mu[1, :] + 2. * np.sqrt(self.sdist.sigma[1, 1, :])
-        plt.fill_between(t, lb, ub, color='red', alpha='0.1')
+        for k in range(self.nb_xdim):
+            plt.subplot(self.nb_xdim + self.nb_udim, 1, k + 1)
+            plt.plot(t, self.sdist.mu[k, :], '-b')
+            lb = self.sdist.mu[k, :] - 2. * np.sqrt(self.sdist.sigma[k, k, :])
+            ub = self.sdist.mu[k, :] + 2. * np.sqrt(self.sdist.sigma[k, k, :])
+            plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
 
-        plt.subplot(3, 1, 3)
-        plt.plot(t, self.adist.mu[0, :], '-g')
-        lb = self.adist.mu[0, :] - 2. * np.sqrt(self.adist.sigma[0, 0, :])
-        ub = self.adist.mu[0, :] + 2. * np.sqrt(self.adist.sigma[0, 0, :])
-        plt.fill_between(t, lb, ub, color='green', alpha='0.1')
+        for k in range(self.nb_udim):
+            plt.subplot(self.nb_xdim + self.nb_udim, 1, self.nb_xdim + k + 1)
+            plt.plot(t, self.adist.mu[k, :], '-g')
+            lb = self.adist.mu[k, :] - 2. * np.sqrt(self.adist.sigma[k, k, :])
+            ub = self.adist.mu[k, :] + 2. * np.sqrt(self.adist.sigma[k, k, :])
+            plt.fill_between(t, lb, ub, color='green', alpha='0.1')
 
         plt.show()
 
     def run(self, nb_episodes):
         # run current controller
-        self.data = self.sample(nb_episodes, self.nb_steps)
+        self.data = self.sample(nb_episodes)
 
         # fit time-variant linear dynamics
-        self.dyn.update(self.data)
+        self.dyn.learn(self.data)
 
         # get quadratic reward around mean traj.
-        self.rwrd.params = self.env.unwrapped.model.get_rwrd(self.sdist.mu, self.adist.mu)
+        self.rwrd.diff(self.sdist.mu, self.adist.mu)
 
         # current state distribution
         self.sdist, self.adist, self.sadist = self.forward_pass(self.ctl)

@@ -10,7 +10,7 @@ import gym
 from trajopt.gps import MBGPS
 
 
-# pendulum env
+# double cartpole env
 env = gym.make('DoubleCartpole-TO-v0')
 env._max_episode_steps = 200
 

@@ -56,15 +56,15 @@ class MBGPS:
         self.rwrd = AnalyticalQuadraticReward(self.env_rwrd, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
 
-    def sample(self, nb_episodes, nb_steps, stoch=True):
-        data = {'x': np.zeros((self.nb_xdim, nb_steps, nb_episodes)),
-                'u': np.zeros((self.nb_udim, nb_steps, nb_episodes)),
-                'xn': np.zeros((self.nb_xdim, nb_steps, nb_episodes))}
+    def sample(self, nb_episodes, stoch=True):
+        data = {'x': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
+                'u': np.zeros((self.nb_udim, self.nb_steps, nb_episodes)),
+                'xn': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes))}
 
         for n in range(nb_episodes):
             x = self.env.reset()
 
-            for t in range(nb_steps):
+            for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
 
                 data['u'][..., t, n] = u
