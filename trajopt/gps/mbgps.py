@@ -25,11 +25,11 @@ class MBGPS:
 
         self.env = env
 
-        self.env_dyn = self.env.unwrapped.model.dyn
+        self.env_dyn = self.env.unwrapped.model.dynamics
         self.env_sigma = self.env.unwrapped.model.sigma
 
-        self.env_rwrd = self.env.unwrapped.model.rwrd
-        self.env_init = self.env.unwrapped.model.init
+        self.env_rwrd = self.env.unwrapped.model.reward
+        self.env_init = self.env.unwrapped.model.initialize
 
         self.alim = self.env.action_space.high
 
@@ -145,25 +145,21 @@ class MBGPS:
         plt.figure()
         t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
 
-        plt.subplot(3, 1, 1)
-        plt.plot(t, self.sdist.mu[0, :], '-b')
-        lb = self.sdist.mu[0, :] - 2. * np.sqrt(self.sdist.sigma[0, 0, :])
-        ub = self.sdist.mu[0, :] + 2. * np.sqrt(self.sdist.sigma[0, 0, :])
-        plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
-
-        plt.subplot(3, 1, 2)
-        plt.plot(t, self.sdist.mu[1, :], '-r')
-        lb = self.sdist.mu[1, :] - 2. * np.sqrt(self.sdist.sigma[1, 1, :])
-        ub = self.sdist.mu[1, :] + 2. * np.sqrt(self.sdist.sigma[1, 1, :])
-        plt.fill_between(t, lb, ub, color='red', alpha='0.1')
+        for k in range(self.nb_xdim):
+            plt.subplot(self.nb_xdim + self.nb_udim, 1, k + 1)
+            plt.plot(t, self.sdist.mu[k, :], '-b')
+            lb = self.sdist.mu[k, :] - 2. * np.sqrt(self.sdist.sigma[k, k, :])
+            ub = self.sdist.mu[k, :] + 2. * np.sqrt(self.sdist.sigma[k, k, :])
+            plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
 
-        plt.subplot(3, 1, 3)
-        plt.plot(t, self.adist.mu[0, :], '-g')
-        lb = self.adist.mu[0, :] - 2. * np.sqrt(self.adist.sigma[0, 0, :])
-        ub = self.adist.mu[0, :] + 2. * np.sqrt(self.adist.sigma[0, 0, :])
-        plt.fill_between(t, lb, ub, color='green', alpha='0.1')
+        for k in range(self.nb_udim):
+            plt.subplot(self.nb_xdim + self.nb_udim, 1, self.nb_xdim + k + 1)
+            plt.plot(t, self.adist.mu[k, :], '-g')
+            lb = self.adist.mu[k, :] - 2. * np.sqrt(self.adist.sigma[k, k, :])
+            ub = self.adist.mu[k, :] + 2. * np.sqrt(self.adist.sigma[k, k, :])
+            plt.fill_between(t, lb, ub, color='green', alpha='0.1')
 
         plt.show()
 
