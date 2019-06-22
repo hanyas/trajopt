@@ -17,12 +17,14 @@ class _CartpoleBase:
         self._xw = xw
         self._uw = uw
 
-        self.xmax = np.array([np.inf, 100., np.inf, 25.0])
+        # x = [x, th, dx, dth]
+        self.xmax = np.array([100., np.inf, 25., 25.])
         self.umax = 5.0
 
         self.sigma = 1.e-4 * np.eye(self.nb_xdim)
 
     def dynamics(self, x, u):
+        # import from: https://github.com/JoeMWatson/input-inference-for-control/
         # x = [x, th, dx, dth]
         g = 9.81
         Mc = 0.37
@@ -61,7 +63,7 @@ class Cartpole(gym.Env):
 
     def __init__(self):
         self._dt = 0.01
-        self._xw = - self._dt * 1. * np.array([1e-1, 1e1, 1e-1, 1.e-1])
+        self._xw = - self._dt * 1. * np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
         self._uw = - self._dt * 1. * np.array([1.e-3])
         self._g = np.array([0., 2. * np.pi, 0., 0.])
 
