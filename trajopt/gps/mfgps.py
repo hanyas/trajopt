@@ -25,11 +25,11 @@ class MFGPS:
 
         self.env = env
 
-        self.env_dyn = self.env.unwrapped.model.dynamics
-        self.env_sigma = self.env.unwrapped.model.sigma
+        self.env_dyn = self.env.unwrapped.dynamics
+        self.env_sigma = self.env.unwrapped.sigma
 
-        self.env_rwrd = self.env.unwrapped.model.reward
-        self.env_init = self.env.unwrapped.model.initialize
+        self.env_rwrd = self.env.unwrapped.reward
+        self.env_init = self.env.unwrapped.initialize
 
         self.alim = self.env.action_space.high
 

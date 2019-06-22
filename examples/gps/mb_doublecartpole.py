@@ -26,8 +26,8 @@ for _ in range(10):
 alg.plot()
 
 # execute and plot
-nb_traj = 25
-data = alg.sample(nb_traj, alg.nb_steps, stoch=False)
+nb_episodes = 25
+data = alg.sample(nb_episodes, stoch=False)
 
 import matplotlib.pyplot as plt
 
