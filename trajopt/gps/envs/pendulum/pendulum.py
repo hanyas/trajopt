@@ -18,38 +18,37 @@ class _PendulumBase:
         self._uw = uw
 
         self.xmax = np.array([np.inf, 25.0])
-        self.umax = 5.0
+        self.umax = 2.0
 
         # damping
-        self._k = 1.e-3
+        self._k = 1.e-2
 
         self.sigma = 1.e-4 * np.eye(self.nb_xdim)
 
-    def dyn(self, x, u):
+    def dynamics(self, x, u):
         # u = np.clip(u, -self.umax, self.umax)
         th, dth = x
 
-        g, m, l = 10., 1.0, 1.0
+        g, m, l = 9.80665, 1.0, 1.0
 
-        # dthn = dth + self._dt * (3. * g / (2 * l) * np.sin(th) +
-        #                          3. / (m * l ** 2) * (u - self._k * dth))
-        dthn = dth + self._dt * (g * l * m * np.sin(th) + u - self._k * dth)
+        dthn = dth + self._dt * (3. * g / (2 * l) * np.sin(th) +
+                                 3. / (m * l ** 2) * (u - self._k * dth))
+        # dthn = dth + self._dt * (g * l * m * np.sin(th) + u - self._k * dth)
 
         thn = th + dthn * self._dt
 
         xn = np.hstack((thn, dthn))
-        xn = np.clip(xn, -self.xmax, self.xmax)
         return xn
 
-    def rwrd(self, x, u, a):
+    def reward(self, x, u, a):
         if a:
             return (x - self._g).T @ np.diag(self._xw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
         else:
             return u.T @ np.diag(self._uw) @ u
 
-    def init(self):
+    def initialize(self):
         # mu, sigma
-        return np.array([np.pi, 0.]), 1.e-4 * np.eye(2)
+        return np.array([np.pi, 0.]), 1.e-4 * np.eye(self.nb_xdim)
 
 
 class Pendulum(gym.Env):
@@ -83,11 +82,11 @@ class Pendulum(gym.Env):
         return [seed]
 
     def step(self, u):
-        self.state = self.model.dyn(self.state, u)
+        self.state = self.model.dynamics(self.state, u)
         self.state = self.np_random.multivariate_normal(mean=self.state, cov=self.model.sigma)
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self._model.init()
+        _mu_0, _sigma_0 = self._model.initialize()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
         return self.state

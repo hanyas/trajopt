@@ -14,3 +14,9 @@ register(
     entry_point='trajopt.gps.envs:Pendulum',
     max_episode_steps=1000,
 )
+
+register(
+    id='Cartpole-TO-v0',
+    entry_point='trajopt.gps.envs:Cartpole',
+    max_episode_steps=1000,
+)

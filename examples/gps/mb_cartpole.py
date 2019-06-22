@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# @Filename: mb_lqr.py
+# @Filename: mb_pendulum.py
 # @Date: 2019-06-16-18-38
 # @Author: Hany Abdulsamad
 # @Contact: hany@robot-learning.de
@@ -10,16 +10,16 @@ import gym
 from trajopt.gps import MBGPS
 
 
-# lqr task
-env = gym.make('LQR-TO-v0')
-env._max_episode_steps = 100
+# pendulum env
+env = gym.make('Cartpole-TO-v0')
+env._max_episode_steps = 200
 
-alg = MBGPS(env, nb_steps=100,
-            kl_bound=10.,
-            init_ctl_sigma=1.)
+alg = MBGPS(env, nb_steps=200,
+            kl_bound=25.,
+            init_ctl_sigma=1.0)
 
 # run gps
-for _ in range(1):
+for _ in range(10):
     alg.run()
 
 # plot dists
