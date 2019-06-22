@@ -19,7 +19,7 @@ alg = MBGPS(env, nb_steps=150,
             init_ctl_sigma=1.0)
 
 # run gps
-for _ in range(5):
+for _ in range(1):
     alg.run()
 
 # plot dists

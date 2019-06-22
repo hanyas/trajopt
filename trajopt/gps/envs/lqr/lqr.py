@@ -2,83 +2,43 @@ import gym
 from gym import spaces
 from gym.utils import seeding
 
-import numpy as np
+import autograd.numpy as np
 
 
 class _LQRBase:
 
-    def __init__(self, dt, xw, uw, goal=np.zeros((2, ))):
+    def __init__(self, dt, xw, uw, goal):
         self._dt = dt
         self._g = goal
 
-        self._Rxx = np.diag(xw)
-        self._rx = - 2. * np.diag(xw) @ self._g
+        self._xw = xw
+        self._uw = uw
 
-        self._Ruu = np.diag(uw)
-        self._ru = np.zeros((1, ))
-
-        self._Rxu = np.zeros((2, 1))
-        self._r0 = self._g.T @ np.diag(xw) @ self._g
+        self.xmax = np.array([np.inf, np.inf])
+        self.umax = np.inf
 
         self._A = np.array([[1., 1.e-2], [0., 1.]])
         self._B = np.array([[0.], [1.]])
         self._c = np.zeros((2, ))
 
-        self._sigma = 1.e-4 * np.eye(2)
+        self.sigma = 1.e-4 * np.eye(2)
 
-        self.xmax = np.array([np.inf, np.inf])
-        self.umax = np.inf
-
-    def step(self, x, u):
+    def dyn(self, x, u):
         u = np.clip(u, -self.umax, self.umax)
 
         xn = np.einsum('kh,h->k', self._A, x) + \
              np.einsum('kh,h->k', self._B, u) + self._c
 
         xn = np.clip(xn, -self.xmax, self.xmax)
-        xn = np.random.multivariate_normal(xn, self._sigma)
-
         return xn
 
-    def get_rwrd(self, x=None, u=None):
-        T = x.shape[1]
-        _Rxx = np.zeros((2, 2, T + 1))
-        _rx = np.zeros((2, T + 1))
+    def rwrd(self, x, u, a):
+        if a:
+            return (x - self._g).T @ np.diag(self._xw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
+        else:
+            return u.T @ np.diag(self._uw) @ u
 
-        _Ruu = np.zeros((1, 1, T + 1))
-        _ru = np.zeros((1, T + 1))
-
-        _Rxu = np.zeros((2, 1, T + 1))
-        _r0 = np.zeros((T + 1, ))
-
-        for t in range(T):
-            _Rxx[..., t] = self._Rxx
-            _rx[..., t] = self._rx
-
-            _Ruu[..., t] = self._Ruu
-            _ru[..., t] = self._ru
-
-            _Rxu[..., t] = self._Rxu
-            _r0[..., t] = self._r0
-
-        return _Rxx, _rx, _Ruu, _ru, _Rxu, _r0
-
-    def get_dyn(self, x=None, u=None):
-        T = x.shape[1] - 1
-        _A = np.zeros((2, 2, T))
-        _B = np.zeros((2, 1, T))
-        _c = np.zeros((2, T))
-        _sigma = np.zeros((2, 2, T))
-
-        for t in range(T):
-            _A[..., t] = self._A
-            _B[..., t] = self._B
-            _c[..., t] = self._c
-            _sigma[..., t] = self._sigma
-
-        return _A, _B, _c, _sigma
-
-    def get_init(self):
+    def init(self):
         # mu, sigma
         return np.array([0., 0.]), 1.e-4 * np.eye(2)
 
@@ -88,7 +48,7 @@ class LQR(gym.Env):
     def __init__(self):
 
         self._dt = 0.01
-        self._xw = - 1. * np.array([1.e4, 1.])
+        self._xw = - 1. * np.array([1.e1, 1.])
         self._uw = - 1. * np.array([1.e-3])
         self._g = np.array([1., 0])
 
@@ -115,13 +75,11 @@ class LQR(gym.Env):
         return [seed]
 
     def step(self, u):
-        self.state = self._model.step(self.state, u)
+        self.state = self._model.dyn(self.state, u)
+        self.state = self.np_random.multivariate_normal(mean=self.state, cov=self.model.sigma)
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self._model.get_init()
+        _mu_0, _sigma_0 = self._model.init()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
         return self.state
-
-    def render(self, mode='human'):
-        return
