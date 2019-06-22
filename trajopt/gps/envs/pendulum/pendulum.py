@@ -25,14 +25,11 @@ class Pendulum(gym.Env):
         self._xmax = np.array([np.inf, 25.0])
         self._umax = 2.0
 
-        self.low_state = - self._xmax
-        self.high_state = self._xmax
-
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
-        self.observation_space = spaces.Box(low=self.low_state,
-                                            high=self.high_state)
+        self.observation_space = spaces.Box(low=-self._xmax,
+                                            high=self._xmax)
 
         self.seed()
         self.reset()
