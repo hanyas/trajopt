@@ -91,17 +91,17 @@ class MBGPS:
 
     def backward_pass(self, alpha, agrwrd):
         lgc = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps)
-        svalue = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
-        savalue = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
+        xvalue = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
+        xuvalue = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
 
-        savalue.Qxx, savalue.Qux, savalue.Quu,\
-        savalue.qx, savalue.qu, savalue.q0, savalue.q0_softmax,\
-        svalue.V, svalue.v, svalue.v0, svalue.v0_softmax,\
+        xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
+        xuvalue.qx, xuvalue.qu, xuvalue.q0, xuvalue.q0_softmax,\
+        xvalue.V, xvalue.v, xvalue.v0, xvalue.v0_softmax,\
         lgc.K, lgc.kff, lgc.sigma = backward_pass(agrwrd.Rxx, agrwrd.rx, agrwrd.Ruu,
                                                   agrwrd.ru, agrwrd.Rxu, agrwrd.r0,
                                                   self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
                                                   alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
-        return lgc, svalue, savalue
+        return lgc, xvalue, xuvalue
 
     def augment_reward(self, alpha):
         agrwrd = QuadraticReward(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
@@ -117,15 +117,15 @@ class MBGPS:
         agrwrd = self.augment_reward(alpha)
 
         # backward pass
-        lgc, svalue, savalue = self.backward_pass(alpha, agrwrd)
+        lgc, xvalue, xuvalue = self.backward_pass(alpha, agrwrd)
 
         # forward pass
         xdist, udist, xudist = self.forward_pass(lgc)
 
         # dual expectation
         dual = quad_expectation(xdist.mu[..., 0], xdist.sigma[..., 0],
-                                svalue.V[..., 0], svalue.v[..., 0],
-                                svalue.v0_softmax[..., 0])
+                                xvalue.V[..., 0], xvalue.v[..., 0],
+                                xvalue.v0_softmax[..., 0])
         dual += alpha * self.kl_bound
 
         # gradient
@@ -184,7 +184,7 @@ class MBGPS:
 
         # re-compute after opt.
         agrwrd = self.augment_reward(self.alpha)
-        lgc, svalue, savalue = self.backward_pass(self.alpha, agrwrd)
+        lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agrwrd)
         xdist, udist, xudist = self.forward_pass(lgc)
 
         # check kl constraint
@@ -196,6 +196,6 @@ class MBGPS:
             # update state-action dists.
             self.xdist, self.udist, self.xudist = xdist, udist, xudist
             # update value functions
-            self.vfunc, self.qfunc = svalue, savalue
+            self.vfunc, self.qfunc = xvalue, xuvalue
         else:
             return
