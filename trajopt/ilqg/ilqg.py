@@ -77,10 +77,9 @@ class iLQG:
 
         self.last_return = - np.inf
 
-    def simulate(self, ctl, alpha):
+    def forward_pass(self, ctl, alpha):
         data = {'x': np.zeros((self.nb_xdim, self.nb_steps + 1)),
-                'u': np.zeros((self.nb_udim, self.nb_steps)),
-                'r': np.zeros((self.nb_steps + 1))}
+                'u': np.zeros((self.nb_udim, self.nb_steps))}
 
         x = self.env.reset()
         data['x'][..., 0] = x
@@ -89,15 +88,8 @@ class iLQG:
             u = ctl.apply(x, alpha, self.xref, self.uref, t)
             data['u'][..., t] = u
 
-            # expose true reward function
-            r = self.env.unwrapped.reward(x, u, self.activation[t])
-            data['r'][t] = r
-
             x, _, _, _ = self.env.step(np.clip(u, - self.alim, self.alim))
             data['x'][..., t + 1] = x
-
-        r = self.env.unwrapped.reward(x, np.zeros((self.nb_udim, )), self.activation[-1])
-        data['r'][-1] = r
 
         return data
 
@@ -120,14 +112,13 @@ class iLQG:
         import matplotlib.pyplot as plt
 
         plt.figure()
-        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
 
+        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
         for k in range(self.nb_xdim):
             plt.subplot(self.nb_xdim + self.nb_udim, 1, k + 1)
             plt.plot(t, self.xref[k, :], '-b')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
-
         for k in range(self.nb_udim):
             plt.subplot(self.nb_xdim + self.nb_udim, 1, self.nb_xdim + k + 1)
             plt.plot(t, self.uref[k, :], '-g')
@@ -135,6 +126,10 @@ class iLQG:
         plt.show()
 
     def run(self, nb_iter=250):
+        _trace = []
+        _uref_padd = np.hstack((self.uref, np.zeros((self.nb_udim, 1))))
+        _trace.append(self.rwrd.exact_eval(self.xref, _uref_padd))
+
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
             self.dyn.diff(self.xref, self.uref)
@@ -160,7 +155,7 @@ class iLQG:
                     backpass_done = True
 
             # terminate if gradient too small
-            g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref) + 1.), axis=1))
+            g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref[..., -1]) + 1.), axis=1))
             if g_norm < self.tolgrad and self.lmbda < 1.e-5:
                 self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
                 self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
@@ -172,8 +167,9 @@ class iLQG:
             if backpass_done:
                 for alpha in self.alphas:
                     # apply on actual system
-                    _data = self.simulate(ctl=lc, alpha=alpha)
-                    _return = np.sum(_data['r'])
+                    _data = self.forward_pass(ctl=lc, alpha=alpha)
+                    _u_padd = np.hstack((_data['u'], np.zeros((self.nb_udim, 1))))
+                    _return = self.rwrd.exact_eval(_data['x'], _u_padd)
 
                     # check return improvement
                     _dreturn = _return - self.last_return
@@ -198,6 +194,8 @@ class iLQG:
                 self.last_return = _return
                 self.ctl = lc
 
+                _trace.append(_return)
+
                 # terminate if reached reward tolerance
                 if _dreturn < self.tolfun:
                     break
@@ -209,3 +207,5 @@ class iLQG:
                     break
                 else:
                     continue
+
+        return _trace

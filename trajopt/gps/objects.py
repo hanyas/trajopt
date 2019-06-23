@@ -100,7 +100,13 @@ class AnalyticalQuadraticReward(QuadraticReward):
         self.drdx = jacobian(self.f, 0)
         self.drdu = jacobian(self.f, 1)
 
-    def eval(self, x, u, t, const=False):
+    def exact_eval(self, x, u):
+        ret = 0.0
+        for t in range(self.nb_steps):
+            ret += self.f(x[..., t], u[..., t], self.a[..., t])
+        return ret
+
+    def approx_eval(self, x, u, t, const=False):
         res = 0.0
         # quadratic state
         res += np.einsum('k,kh,h->', x, self.Rxx[..., t], x)
@@ -131,10 +137,12 @@ class AnalyticalQuadraticReward(QuadraticReward):
                 self.Ruu[..., t] = 0.5 * self.drduu(*_in)
                 self.Rxu[..., t] = 0.5 * self.drdxu(*_in)
 
-                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ _x[..., t] - 0.5 * self.drdxu(*_in) @ _u[..., t]
-                self.ru[..., t] = self.drdu(*_in) - self.drduu(*_in) @ _u[..., t] - 0.5 * x[..., t].T @ self.drdxu(*_in)
+                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ _x[..., t] -\
+                                  0.5 * self.drdxu(*_in) @ _u[..., t]
+                self.ru[..., t] = self.drdu(*_in) - self.drduu(*_in) @ _u[..., t] -\
+                                  0.5 * x[..., t].T @ self.drdxu(*_in)
 
-            self.r0[..., t] = self.f(*_in) - self.eval(_x[..., t], _u[..., t], t)
+            self.r0[..., t] = self.f(*_in) - self.approx_eval(_x[..., t], _u[..., t], t)
 
 
 class LinearGaussianDynamics:
@@ -172,7 +180,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
 
         self._sigma = sigma
 
-    def eval(self, x, u, t, const=False):
+    def approx_eval(self, x, u, t, const=False):
         xn = np.zeros((self.nb_xdim, ))
         # linear state
         xn += np.einsum('h,kh->k', x, self.A[..., t])
@@ -188,7 +196,8 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         for t in range(self.nb_steps):
             self.A[..., t] = self.dfdx(x[..., t], u[..., t])
             self.B[..., t] = self.dfdu(x[..., t], u[..., t])
-            self.c[..., t] = self.f(x[..., t], u[..., t]) - self.eval(x[..., t], u[..., t], t)
+            self.c[..., t] = self.f(x[..., t], u[..., t]) -\
+                             self.approx_eval(x[..., t], u[..., t], t)
             self.sigma[..., t] = self._sigma
 
 

@@ -70,20 +70,26 @@ class MFGPS:
     def sample(self, nb_episodes, stoch=True):
         data = {'x': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
                 'u': np.zeros((self.nb_udim, self.nb_steps, nb_episodes)),
-                'xn': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes))}
+                'xn': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
+                'r': np.zeros((self.nb_steps + 1, nb_episodes))}
 
         for n in range(nb_episodes):
             x = self.env.reset()
 
             for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
-
                 data['u'][..., t, n] = u
+
+                # expose true reward function
+                r = self.env.unwrapped.reward(x, u, self.activation[t])
+                data['r'][t] = r
+
                 data['x'][..., t, n] = x
-
                 x, _, _, _ = self.env.step(np.clip(u, - self.alim, self.alim))
-
                 data['xn'][..., t, n] = x
+
+            r = self.env.unwrapped.reward(x, np.zeros((self.nb_udim, )), self.activation[-1])
+            data['r'][-1, n] = r
 
         return data
 
@@ -154,8 +160,8 @@ class MFGPS:
         import matplotlib.pyplot as plt
 
         plt.figure()
-        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
 
+        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
         for k in range(self.nb_xdim):
             plt.subplot(self.nb_xdim + self.nb_udim, 1, k + 1)
             plt.plot(t, self.xdist.mu[k, :], '-b')
@@ -164,7 +170,6 @@ class MFGPS:
             plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
-
         for k in range(self.nb_udim):
             plt.subplot(self.nb_xdim + self.nb_udim, 1, self.nb_xdim + k + 1)
             plt.plot(t, self.udist.mu[k, :], '-g')
@@ -175,17 +180,22 @@ class MFGPS:
         plt.show()
 
     def run(self, nb_episodes):
+        # current state distribution
+        self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
+
+        # get quadratic reward around mean traj.
+        self.rwrd.diff(self.xudist.mu[:self.nb_xdim, :],
+                       self.xudist.mu[self.nb_xdim:, :])
+
         # run current controller
         self.data = self.sample(nb_episodes)
 
         # fit time-variant linear dynamics
         self.dyn.learn(self.data)
 
-        # get quadratic reward around mean traj.
-        self.rwrd.diff(self.xdist.mu, self.udist.mu)
-
-        # current state distribution
-        self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
+        # summed mean return
+        ret = self.rwrd.exact_eval(self.xudist.mu[:self.nb_xdim, :],
+                                   self.xudist.mu[self.nb_xdim:, :])
 
         # use scipy optimizer
         res = sc.optimize.minimize(self.dual, np.array([1.e2]),
@@ -211,5 +221,5 @@ class MFGPS:
             self.xdist, self.udist, self.xudist = xdist, udist, xudist
             # update value functions
             self.vfunc, self.qfunc = xvalue, xuvalue
-        else:
-            return
+
+        return ret
