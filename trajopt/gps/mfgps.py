@@ -42,12 +42,12 @@ class MFGPS:
         self.alpha = np.array([100.])
 
         # create state distribution and initialize first time step
-        self.sdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
+        self.xdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
         for t in range(self.nb_steps + 1):
-            self.sdist.mu[..., t], self.sdist.sigma[..., t] = self.env_init()
+            self.xdist.mu[..., t], self.xdist.sigma[..., t] = self.env_init()
 
-        self.adist = GaussianInTime(self.nb_udim, self.nb_steps)
-        self.sadist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
+        self.udist = GaussianInTime(self.nb_udim, self.nb_steps)
+        self.xudist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
@@ -79,17 +79,17 @@ class MFGPS:
         return data
 
     def forward_pass(self, lgc):
-        sdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
-        adist = GaussianInTime(self.nb_udim, self.nb_steps)
-        sadist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
+        xdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
+        udist = GaussianInTime(self.nb_udim, self.nb_steps)
+        xudist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
-        sdist.mu, sdist.sigma,\
-        adist.mu, adist.sigma,\
-        sadist.mu, sadist.sigma = forward_pass(self.sdist.mu[..., 0], self.sdist.sigma[..., 0],
+        xdist.mu, xdist.sigma,\
+        udist.mu, udist.sigma,\
+        xudist.mu, xudist.sigma = forward_pass(self.xdist.mu[..., 0], self.xdist.sigma[..., 0],
                                                self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
                                                lgc.K, lgc.kff, lgc.sigma,
                                                self.nb_xdim, self.nb_udim, self.nb_steps)
-        return sdist, adist, sadist
+        return xdist, udist, xudist
 
     def backward_pass(self, alpha, agrwrd):
         lgc = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps)
@@ -122,23 +122,23 @@ class MFGPS:
         lgc, svalue, savalue = self.backward_pass(alpha, agrwrd)
 
         # forward pass
-        sdist, adist, sadist = self.forward_pass(lgc)
+        xdist, udist, xudist = self.forward_pass(lgc)
 
         # dual expectation
-        dual = quad_expectation(sdist.mu[..., 0], sdist.sigma[..., 0],
+        dual = quad_expectation(xdist.mu[..., 0], xdist.sigma[..., 0],
                                 svalue.V[..., 0], svalue.v[..., 0],
                                 svalue.v0_softmax[..., 0])
         dual += alpha * self.kl_bound
 
         # gradient
-        grad = self.kl_bound - self.kldiv(lgc, sdist)
+        grad = self.kl_bound - self.kldiv(lgc, xdist)
 
         return np.array([dual]), np.array([grad])
 
-    def kldiv(self, lgc, sdist):
+    def kldiv(self, lgc, xdist):
         return kl_divergence(lgc.K, lgc.kff, lgc.sigma,
                              self.ctl.K, self.ctl.kff, self.ctl.sigma,
-                             sdist.mu, sdist.sigma,
+                             xdist.mu, xdist.sigma,
                              self.nb_xdim, self.nb_udim, self.nb_steps)
 
     def plot(self):
@@ -149,18 +149,18 @@ class MFGPS:
 
         for k in range(self.nb_xdim):
             plt.subplot(self.nb_xdim + self.nb_udim, 1, k + 1)
-            plt.plot(t, self.sdist.mu[k, :], '-b')
-            lb = self.sdist.mu[k, :] - 2. * np.sqrt(self.sdist.sigma[k, k, :])
-            ub = self.sdist.mu[k, :] + 2. * np.sqrt(self.sdist.sigma[k, k, :])
+            plt.plot(t, self.xdist.mu[k, :], '-b')
+            lb = self.xdist.mu[k, :] - 2. * np.sqrt(self.xdist.sigma[k, k, :])
+            ub = self.xdist.mu[k, :] + 2. * np.sqrt(self.xdist.sigma[k, k, :])
             plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
 
         for k in range(self.nb_udim):
             plt.subplot(self.nb_xdim + self.nb_udim, 1, self.nb_xdim + k + 1)
-            plt.plot(t, self.adist.mu[k, :], '-g')
-            lb = self.adist.mu[k, :] - 2. * np.sqrt(self.adist.sigma[k, k, :])
-            ub = self.adist.mu[k, :] + 2. * np.sqrt(self.adist.sigma[k, k, :])
+            plt.plot(t, self.udist.mu[k, :], '-g')
+            lb = self.udist.mu[k, :] - 2. * np.sqrt(self.udist.sigma[k, k, :])
+            ub = self.udist.mu[k, :] + 2. * np.sqrt(self.udist.sigma[k, k, :])
             plt.fill_between(t, lb, ub, color='green', alpha='0.1')
 
         plt.show()
@@ -173,10 +173,10 @@ class MFGPS:
         self.dyn.learn(self.data)
 
         # get quadratic reward around mean traj.
-        self.rwrd.diff(self.sdist.mu, self.adist.mu)
+        self.rwrd.diff(self.xdist.mu, self.udist.mu)
 
         # current state distribution
-        self.sdist, self.adist, self.sadist = self.forward_pass(self.ctl)
+        self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
         # use scipy optimizer
         res = sc.optimize.minimize(self.dual, np.array([1.e2]),
@@ -190,16 +190,16 @@ class MFGPS:
         # re-compute after opt.
         agrwrd = self.augment_reward(self.alpha)
         lgc, svalue, savalue = self.backward_pass(self.alpha, agrwrd)
-        sdist, adist, sadist = self.forward_pass(lgc)
+        xdist, udist, xudist = self.forward_pass(lgc)
 
         # check kl constraint
-        kl = self.kldiv(lgc, sdist)
+        kl = self.kldiv(lgc, xdist)
 
         if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
             # update controller
             self.ctl = lgc
             # update state-action dists.
-            self.sdist, self.adist, self.sadist = sdist, adist, sadist
+            self.xdist, self.udist, self.xudist = xdist, udist, xudist
             # update value functions
             self.vfunc, self.qfunc = svalue, savalue
         else:

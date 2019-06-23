@@ -80,38 +80,38 @@ array_tf vec_to_array(vec m) {
 }
 
 
-double kl_divergence(array_tf _K, array_tf _kff, array_tf _sigma_a,
-                       array_tf _lK, array_tf _lkff, array_tf _lsigma_a,
-                       array_tf _mu, array_tf _sigma_s,
+double kl_divergence(array_tf _K, array_tf _kff, array_tf _sigma_ctl,
+                       array_tf _lK, array_tf _lkff, array_tf _lsigma_ctl,
+                       array_tf _mu_x, array_tf _sigma_x,
                        int nb_xdim, int nb_udim, int nb_steps) {
 
     cube K = array_to_cube(_K);
     mat kff = array_to_mat(_kff);
-    cube sigma_a = array_to_cube(_sigma_a);
+    cube sigma_ctl = array_to_cube(_sigma_ctl);
 
     cube lK = array_to_cube(_lK);
     mat lkff = array_to_mat(_lkff);
-    cube lsigma_a = array_to_cube(_lsigma_a);
+    cube lsigma_ctl = array_to_cube(_lsigma_ctl);
 
-    mat mu  = array_to_mat(_mu);
-    cube sigma_s = array_to_cube(_sigma_s);
+    mat mu_x  = array_to_mat(_mu_x);
+    cube sigma_x = array_to_cube(_sigma_x);
 
     double kl = 0.0;
 
     for(int i = 0; i < nb_steps; i++) {
 
-        mat lprec_a = inv_sympd(lsigma_a.slice(i));
+        mat lprec_ctl = inv_sympd(lsigma_ctl.slice(i));
 
-        mat diff_K = (lK.slice(i) - K.slice(i)).t() * lprec_a * (lK.slice(i) - K.slice(i));
-        mat diff_crs = (lK.slice(i) - K.slice(i)).t() * lprec_a * (- lkff.col(i) + kff.col(i));
-        mat diff_kff = (- lkff.col(i) + kff.col(i)).t() * lprec_a * (- lkff.col(i) + kff.col(i));
+        mat diff_K = (lK.slice(i) - K.slice(i)).t() * lprec_ctl * (lK.slice(i) - K.slice(i));
+        mat diff_crs = (lK.slice(i) - K.slice(i)).t() * lprec_ctl * (- lkff.col(i) + kff.col(i));
+        mat diff_kff = (- lkff.col(i) + kff.col(i)).t() * lprec_ctl * (- lkff.col(i) + kff.col(i));
 
-        kl += as_scalar(0.5 * log( det(lsigma_a.slice(i)) / det(sigma_a.slice(i)) )
-		                + 0.5 * trace(lprec_a * sigma_a.slice(i))
+        kl += as_scalar(0.5 * log( det(lsigma_ctl.slice(i)) / det(sigma_ctl.slice(i)) )
+		                + 0.5 * trace(lprec_ctl * sigma_ctl.slice(i))
 		                - 0.5 * nb_udim
-		                + 0.5 * trace(diff_K * sigma_s.slice(i))
-		                + 0.5 * mu.col(i).t() * diff_K * mu.col(i)
-		                - mu.col(i).t() * diff_crs
+		                + 0.5 * trace(diff_K * sigma_x.slice(i))
+		                + 0.5 * mu_x.col(i).t() * diff_K * mu_x.col(i)
+		                - mu_x.col(i).t() * diff_crs
 		                + 0.5 * diff_kff);
     }
 
@@ -191,14 +191,14 @@ py::tuple augment_reward(array_tf _Rxx, array_tf _rx, array_tf _Ruu,
     return output;
 }
 
-py::tuple forward_pass(array_tf _mu_s0, array_tf _sigma_s0,
+py::tuple forward_pass(array_tf _mu_x0, array_tf _sigma_x0,
                        array_tf _A, array_tf _B, array_tf _c, array_tf _sigma_dyn,
                        array_tf _K, array_tf _kff, array_tf _sigma_ctl,
                        int nb_xdim, int nb_udim, int nb_steps) {
 
     // inputs
-    vec mu_s0 = array_to_vec(_mu_s0);
-    mat sigma_s0 = array_to_mat(_sigma_s0);
+    vec mu_x0 = array_to_vec(_mu_x0);
+    mat sigma_x0 = array_to_mat(_sigma_x0);
 
     cube A = array_to_cube(_A);
     cube B = array_to_cube(_B);
@@ -210,60 +210,60 @@ py::tuple forward_pass(array_tf _mu_s0, array_tf _sigma_s0,
     cube sigma_ctl = array_to_cube(_sigma_ctl);
 
     // outputs
-    mat mu_s(nb_xdim, nb_steps + 1);
-    cube sigma_s(nb_xdim, nb_xdim, nb_steps + 1);
+    mat mu_x(nb_xdim, nb_steps + 1);
+    cube sigma_x(nb_xdim, nb_xdim, nb_steps + 1);
 
-    mat mu_a(nb_udim, nb_steps);
-    cube sigma_a(nb_udim, nb_udim, nb_steps);
+    mat mu_u(nb_udim, nb_steps);
+    cube sigma_u(nb_udim, nb_udim, nb_steps);
 
-    mat mu_sa(nb_xdim + nb_udim, nb_steps + 1);
-    cube sigma_sa(nb_xdim + nb_udim, nb_xdim + nb_udim, nb_steps + 1);
+    mat mu_xu(nb_xdim + nb_udim, nb_steps + 1);
+    cube sigma_xu(nb_xdim + nb_udim, nb_xdim + nb_udim, nb_steps + 1);
 
-    mu_s.col(0) = mu_s0;
-    sigma_s.slice(0) = sigma_s0;
+    mu_x.col(0) = mu_x0;
+    sigma_x.slice(0) = sigma_x0;
 
     for (int i = 0; i < nb_steps; i++) {
 
-        // mu_a = K * mu_s + k
-        mu_a.col(i) = K.slice(i) * mu_s.col(i) + kff.col(i);
+        // mu_u = K * mu_x + k
+        mu_u.col(i) = K.slice(i) * mu_x.col(i) + kff.col(i);
 
-        // sigma_a = sigma_ctl + K * sigma_s * K_T
-        sigma_a.slice(i) = sigma_ctl.slice(i) + K.slice(i) * sigma_s.slice(i) * K.slice(i).t();
-        sigma_a.slice(i) = 0.5 * (sigma_a.slice(i) + sigma_a.slice(i).t());
+        // sigma_u = sigma_ctl + K * sigma_x * K_T
+        sigma_u.slice(i) = sigma_ctl.slice(i) + K.slice(i) * sigma_x.slice(i) * K.slice(i).t();
+        sigma_u.slice(i) = 0.5 * (sigma_u.slice(i) + sigma_u.slice(i).t());
 
-        // sigma_sa =   [[sigma_s,      sigma_s * K_T],
-        //               [K*sigma_s,    sigma_a    ]]
-        sigma_sa.slice(i) = join_vert(join_horiz(sigma_s.slice(i), sigma_s.slice(i) * K.slice(i).t()),
-                                        join_horiz(K.slice(i) * sigma_s.slice(i), sigma_a.slice(i)));
-        sigma_sa.slice(i) = 0.5 * (sigma_sa.slice(i) + sigma_sa.slice(i).t());
+        // sigma_xu =   [[sigma_x,      sigma_x * K_T],
+        //               [K*sigma_x,    sigma_u    ]]
+        sigma_xu.slice(i) = join_vert(join_horiz(sigma_x.slice(i), sigma_x.slice(i) * K.slice(i).t()),
+                                        join_horiz(K.slice(i) * sigma_x.slice(i), sigma_u.slice(i)));
+        sigma_xu.slice(i) = 0.5 * (sigma_xu.slice(i) + sigma_xu.slice(i).t());
 
-        // mu_sa =  [[mu_s],
-        //           [mu_a]],
-        mu_sa.col(i) = join_vert(mu_s.col(i), mu_a.col(i));
+        // mu_xu =  [[mu_x],
+        //           [mu_u]],
+        mu_xu.col(i) = join_vert(mu_x.col(i), mu_u.col(i));
 
-        // sigma_s_next = sigma_dyn + [A B] * sigma_sa * [A B]^T
-        sigma_s.slice(i+1) = sigma_dyn.slice(i) + join_horiz(A.slice(i), B.slice(i)) * sigma_sa.slice(i) *
+        // sigma_x_next = sigma_dyn + [A B] * sigma_xu * [A B]^T
+        sigma_x.slice(i+1) = sigma_dyn.slice(i) + join_horiz(A.slice(i), B.slice(i)) * sigma_xu.slice(i) *
                                                               join_vert(A.slice(i).t(), B.slice(i).t());
-        sigma_s.slice(i+1) = 0.5 * (sigma_s.slice(i+1) + sigma_s.slice(i+1).t());
+        sigma_x.slice(i+1) = 0.5 * (sigma_x.slice(i+1) + sigma_x.slice(i+1).t());
 
-        // mu_s_next = [A B] * [s a]^T + c
-        mu_s.col(i+1) = join_horiz(A.slice(i), B.slice(i)) * mu_sa.col(i) + c.col(i);
+        // mu_x_next = [A B] * [s a]^T + c
+        mu_x.col(i+1) = join_horiz(A.slice(i), B.slice(i)) * mu_xu.col(i) + c.col(i);
 
         if(i == nb_steps - 1) {
-            mu_sa.col(i+1) = join_vert(mu_s.col(i+1), zeros<vec>(nb_udim));
-            sigma_sa.slice(i+1).submat(0, 0, nb_xdim - 1, nb_xdim - 1) = sigma_s.slice(i+1);
+            mu_xu.col(i+1) = join_vert(mu_x.col(i+1), zeros<vec>(nb_udim));
+            sigma_xu.slice(i+1).submat(0, 0, nb_xdim - 1, nb_xdim - 1) = sigma_x.slice(i+1);
         }
     }
 
     // transform outputs to numpy
-    array_tf _mu_s = mat_to_array(mu_s);
-    array_tf _sigma_s = cube_to_array(sigma_s);
-    array_tf _mu_a =  mat_to_array(mu_a);
-    array_tf _sigma_a = cube_to_array(sigma_a);
-    array_tf _mu_sa =  mat_to_array(mu_sa);
-    array_tf _sigma_sa = cube_to_array(sigma_sa);
+    array_tf _mu_x = mat_to_array(mu_x);
+    array_tf _sigma_x = cube_to_array(sigma_x);
+    array_tf _mu_u =  mat_to_array(mu_u);
+    array_tf _sigma_u = cube_to_array(sigma_u);
+    array_tf _mu_xu =  mat_to_array(mu_xu);
+    array_tf _sigma_xu = cube_to_array(sigma_xu);
 
-    py::tuple output =  py::make_tuple(_mu_s, _sigma_s, _mu_a, _sigma_a, _mu_sa, _sigma_sa);
+    py::tuple output =  py::make_tuple(_mu_x, _sigma_x, _mu_u, _sigma_u, _mu_xu, _sigma_xu);
     return output;
 }
 
