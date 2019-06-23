@@ -52,10 +52,10 @@ class CMakeBuild(build_ext):
         env = os.environ.copy()
         env['CXXFLAGS'] = '{} -DVERSION_INFO=\\"{}\\"'.format(env.get('CXXFLAGS', ''),
                                                               self.distribution.get_version())
-        if not os.path.exists(self.build_temp):
-            os.makedirs(self.build_temp)
-        subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env)
-        subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=self.build_temp)
+        if not os.path.exists(os.path.join(ext.sourcedir, self.build_temp)):
+            os.makedirs(os.path.join(ext.sourcedir, self.build_temp))
+        subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=os.path.join(ext.sourcedir, self.build_temp), env=env)
+        subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=os.path.join(ext.sourcedir, self.build_temp))
 
 
 setup(
@@ -65,7 +65,8 @@ setup(
     author_email='hany@robot-learning.de',
     description='A toolbox for trajectory optimization',
     long_description='',
-    ext_modules=[CMakeExtension('gps', './trajopt/gps/')],
+    ext_modules=[CMakeExtension('gps', './trajopt/gps/'),
+                 CMakeExtension('ilqg', './trajopt/ilqg/')],
     cmdclass=dict(build_ext=CMakeBuild),
     zip_safe=False,
 )

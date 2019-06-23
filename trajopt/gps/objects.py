@@ -61,7 +61,7 @@ class QuadraticStateActionValue:
 
 
 class QuadraticReward:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
+    def __init__(self, nb_xdim, nb_udim, nb_steps, activation=None):
         self.nb_xdim = nb_xdim
         self.nb_udim = nb_udim
 
@@ -77,8 +77,7 @@ class QuadraticReward:
         self.r0 = np.zeros((self.nb_steps, ))
 
         # activation of reward function
-        self.a = np.zeros((self.nb_steps, ), dtype=np.int64)
-        self.a[-1] = 1
+        self.a = activation
 
     @property
     def params(self):
@@ -90,8 +89,8 @@ class QuadraticReward:
 
 
 class AnalyticalQuadraticReward(QuadraticReward):
-    def __init__(self, f, nb_xdim, nb_udim, nb_steps):
-        super(AnalyticalQuadraticReward, self).__init__(nb_xdim, nb_udim, nb_steps)
+    def __init__(self, f, nb_xdim, nb_udim, nb_steps, activation):
+        super(AnalyticalQuadraticReward, self).__init__(nb_xdim, nb_udim, nb_steps, activation)
 
         self.f = f
         self.drdxx = hessian(self.f, 0)

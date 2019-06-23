@@ -21,7 +21,8 @@ from trajopt.gps.core import forward_pass, backward_pass
 
 class MFGPS:
 
-    def __init__(self, env, nb_steps, kl_bound, init_ctl_sigma):
+    def __init__(self, env, nb_steps, kl_bound,
+                 init_ctl_sigma, activation='last'):
 
         self.env = env
 
@@ -53,8 +54,16 @@ class MFGPS:
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
 
         self.dyn = LearnedLinearGaussianDynamics(self.nb_xdim, self.nb_udim, self.nb_steps)
-        self.rwrd = AnalyticalQuadraticReward(self.env_rwrd, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
+
+        # activation of reward function
+        if activation == 'all':
+            self.activation = np.ones((self.nb_steps + 1,), dtype=np.int64)
+        else:
+            self.activation = np.zeros((self.nb_steps + 1, ), dtype=np.int64)
+            self.activation[-1] = 1
+        self.rwrd = AnalyticalQuadraticReward(self.env_rwrd, self.nb_xdim,
+                                              self.nb_udim, self.nb_steps + 1, self.activation)
 
         self.data = {}
 
