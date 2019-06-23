@@ -340,7 +340,7 @@ py::tuple backward_pass(array_tf _Rxx, array_tf _rx, array_tf _Ruu,
 
             v.col(i) = (qx.col(i) + 2. * Qux.slice(i).t() * kff.col(i)) * alpha;
             v0(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * nb_udim));
-            v0_softmax(i) = alpha * as_scalar(0.5 * qu.col(i).t() * kff.col(i) + q0_softmax(i)
+            v0_softmax(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0_softmax(i)
                              + 0.5 * (nb_udim * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
 
 		}
