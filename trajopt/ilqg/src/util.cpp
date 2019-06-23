@@ -110,7 +110,7 @@ py::tuple backward_pass(array_tf _Rxx, array_tf _rx, array_tf _Ruu,
 
     cube V(nb_xdim, nb_xdim, nb_steps + 1);
     mat v(nb_xdim, nb_steps + 1);
-    vec dV(nb_xdim);
+    vec dV(2);
 
     cube V_reg(nb_xdim, nb_xdim, nb_steps + 1);
 
