@@ -106,42 +106,30 @@ class AnalyticalQuadraticReward(QuadraticReward):
             ret += self.f(x[..., t], u[..., t], self.a[..., t])
         return ret
 
-    def approx(self, x, u, t, const=False):
-        res = 0.0
-        # quadratic state
-        res += np.einsum('k,kh,h->', x, self.Rxx[..., t], x)
-        # quadratic action
-        res += np.einsum('k,kh,h->', u, self.Ruu[..., t], u)
-        # quadratic cross
-        res += np.einsum('k,kh,h->', x, self.Rxu[..., t], u)
-        # linear state
-        res += np.einsum('k,h->', x, self.rx[..., t])
-        # linear action
-        res += np.einsum('k,h->', u, self.ru[..., t])
-        if const:
-            # constant term
-            res += self.r0[..., t]
-        return res
-
     def diff(self, x, u):
-        _x = x
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
 
         for t in range(self.nb_steps):
-            _in = tuple([_x[..., t], _u[..., t], self.a[t]])
+            _in = tuple([x[..., t], _u[..., t], self.a[t]])
             if t == self.nb_steps - 1:
                 self.Rxx[..., t] = 0.5 * self.drdxx(*_in)
-                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ _x[..., t]
+                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ x[..., t]
             else:
                 self.Rxx[..., t] = 0.5 * self.drdxx(*_in)
                 self.Ruu[..., t] = 0.5 * self.drduu(*_in)
                 self.Rxu[..., t] = 0.5 * self.drdxu(*_in)
 
-                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ _x[..., t] - 0.5 * self.drdxu(*_in) @ _u[..., t]
+                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ x[..., t] - 0.5 * self.drdxu(*_in) @ _u[..., t]
                 self.ru[..., t] = self.drdu(*_in) - self.drduu(*_in) @ _u[..., t] - 0.5 * x[..., t].T @ self.drdxu(*_in)
 
-            self.r0[..., t] = self.f(*_in) - self.approx(_x[..., t], _u[..., t], t)
+            # residual of taylor expansion
+            self.r0[..., t] = self.f(*_in) -\
+                              x[..., t].T @ self.Rxx[..., t] @ x[..., t] -\
+                              _u[..., t].T @ self.Ruu[..., t] @ _u[..., t] -\
+                              x[..., t].T @ self.Rxu[..., t] @ _u[..., t] -\
+                              self.rx[..., t].T @ x[..., t] -\
+                              self.ru[..., t].T @ _u[..., t]
 
 
 class LinearGaussianDynamics:
@@ -179,23 +167,13 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
 
         self._sigma = sigma
 
-    def approx(self, x, u, t, const=False):
-        xn = np.zeros((self.nb_xdim, ))
-        # linear state
-        xn += np.einsum('h,kh->k', x, self.A[..., t])
-        # linear action
-        xn += np.einsum('h,kh->k', u, self.B[..., t])
-        # constant
-        if const:
-            # constant term
-            xn += self.c[..., t]
-        return xn
-
     def diff(self, x, u):
         for t in range(self.nb_steps):
             self.A[..., t] = self.dfdx(x[..., t], u[..., t])
             self.B[..., t] = self.dfdu(x[..., t], u[..., t])
-            self.c[..., t] = self.f(x[..., t], u[..., t]) - self.approx(x[..., t], u[..., t], t)
+            # residual of taylor expansion
+            self.c[..., t] = self.f(x[..., t], u[..., t]) -\
+                             self.A[..., t] @ x[..., t] - self.B[..., t] @ u[..., t]
             self.sigma[..., t] = self._sigma
 
 
