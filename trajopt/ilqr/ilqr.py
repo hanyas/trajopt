@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# @Filename: ilqg
+# @Filename: ilqr
 # @Date: 2019-06-23-14-00
 # @Author: Hany Abdulsamad
 # @Contact: hany@robot-learning.de
 
 import autograd.numpy as np
 
-from trajopt.ilqg.objects import AnalyticalLinearGaussianDynamics, AnalyticalQuadraticReward
-from trajopt.ilqg.objects import QuadraticStateValue, QuadraticStateActionValue
-from trajopt.ilqg.objects import LinearControl
+from trajopt.ilqr.objects import AnalyticalLinearGaussianDynamics, AnalyticalQuadraticReward
+from trajopt.ilqr.objects import QuadraticStateValue, QuadraticStateActionValue
+from trajopt.ilqr.objects import LinearControl
 
-from trajopt.ilqg.core import backward_pass
+from trajopt.ilqr.core import backward_pass
 
 
-class iLQG:
+class iLQR:
 
     def __init__(self, env, nb_steps,
                  alphas=np.power(10., np.linspace(0, -3, 11)),

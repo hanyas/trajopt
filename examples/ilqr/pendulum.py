@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# @Filename: lqr.py
+# @Filename: pendulum.py
 # @Date: 2019-06-16-18-38
 # @Author: Hany Abdulsamad
 # @Contact: hany@robot-learning.de
 
 
 import gym
-from trajopt.ilqg import iLQG
+from trajopt.ilqr import iLQR
 
-# lqr task
-env = gym.make('LQR-TO-v0')
-env._max_episode_steps = 100
+# pendulum env
+env = gym.make('Pendulum-TO-v0')
+env._max_episode_steps = 150
 
-alg = iLQG(env, nb_steps=100, activation='last')
+alg = iLQR(env, nb_steps=150, activation='last')
 
-# run iLQG
+# run iLQR
 alg.run()
 
 # plot forward pass

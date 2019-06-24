@@ -7,15 +7,15 @@
 
 
 import gym
-from trajopt.ilqg import iLQG
+from trajopt.ilqr import iLQR
 
 # cartpole env
 env = gym.make('Cartpole-TO-v0')
 env._max_episode_steps = 200
 
-alg = iLQG(env, nb_steps=200, activation='last')
+alg = iLQR(env, nb_steps=200, activation='last')
 
-# run iLQG
+# run iLQR
 alg.run()
 
 # plot forward pass
