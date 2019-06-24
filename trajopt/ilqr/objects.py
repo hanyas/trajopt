@@ -94,7 +94,7 @@ class AnalyticalQuadraticReward(QuadraticReward):
                 self.ru[..., t] = self.drdu(*_in) - self.drduu(*_in) @ _u[..., t] - x[..., t].T @ self.drdxu(*_in)
 
 
-class LinearGaussianDynamics:
+class LinearDynamics:
     def __init__(self, nb_xdim, nb_udim, nb_steps):
         self.nb_xdim = nb_xdim
         self.nb_udim = nb_udim
@@ -102,37 +102,31 @@ class LinearGaussianDynamics:
 
         self.A = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
         self.B = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
-        self.sigma = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        for t in range(self.nb_steps):
-            self.sigma[..., t] = 1e-8 * np.eye(self.nb_xdim)
 
     @property
     def params(self):
-        return self.A, self.B, self.sigma
+        return self.A, self.B
 
     @params.setter
     def params(self, values):
-        self.A, self.B, self.sigma = values
+        self.A, self.B = values
 
     def sample(self, x, u):
         pass
 
 
-class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
-    def __init__(self, f, sigma, nb_xdim, nb_udim, nb_steps):
-        super(AnalyticalLinearGaussianDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
+class AnalyticalLinearDynamics(LinearDynamics):
+    def __init__(self, f, nb_xdim, nb_udim, nb_steps):
+        super(AnalyticalLinearDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
 
         self.f = f
         self.dfdx = jacobian(self.f, 0)
         self.dfdu = jacobian(self.f, 1)
 
-        self._sigma = sigma
-
     def diff(self, x, u):
         for t in range(self.nb_steps):
             self.A[..., t] = self.dfdx(x[..., t], u[..., t])
             self.B[..., t] = self.dfdu(x[..., t], u[..., t])
-            self.sigma[..., t] = self._sigma
 
 
 class LinearControl:

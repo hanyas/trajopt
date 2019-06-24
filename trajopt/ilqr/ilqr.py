@@ -7,7 +7,7 @@
 
 import autograd.numpy as np
 
-from trajopt.ilqr.objects import AnalyticalLinearGaussianDynamics, AnalyticalQuadraticReward
+from trajopt.ilqr.objects import AnalyticalLinearDynamics, AnalyticalQuadraticReward
 from trajopt.ilqr.objects import QuadraticStateValue, QuadraticStateActionValue
 from trajopt.ilqr.objects import LinearControl
 
@@ -26,8 +26,6 @@ class iLQR:
         self.env = env
 
         self.env_dyn = self.env.unwrapped.dynamics
-        self.env_sigma = self.env.unwrapped.sigma
-
         self.env_rwrd = self.env.unwrapped.reward
         self.env_init = self.env.unwrapped.init
 
@@ -63,7 +61,7 @@ class iLQR:
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
 
-        self.dyn = AnalyticalLinearGaussianDynamics(self.env_dyn, self.env_sigma, self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.dyn = AnalyticalLinearDynamics(self.env_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
 
         # activation of reward function
