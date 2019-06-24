@@ -29,9 +29,9 @@ class iLQG:
         self.env_sigma = self.env.unwrapped.sigma
 
         self.env_rwrd = self.env.unwrapped.reward
-        self.env_init = self.env.unwrapped.initialize
+        self.env_init = self.env.unwrapped.init
 
-        self.alim = self.env.action_space.high
+        self.ulim = self.env.action_space.high
 
         self.nb_xdim = self.env.observation_space.shape[0]
         self.nb_udim = self.env.action_space.shape[0]
@@ -88,7 +88,7 @@ class iLQG:
             u = ctl.apply(x, alpha, self.xref, self.uref, t)
             data['u'][..., t] = u
 
-            x, _, _, _ = self.env.step(np.clip(u, - self.alim, self.alim))
+            x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
             data['x'][..., t + 1] = x
 
         return data
@@ -128,7 +128,7 @@ class iLQG:
     def run(self, nb_iter=250):
         _trace = []
         _uref_padd = np.hstack((self.uref, np.zeros((self.nb_udim, 1))))
-        _trace.append(self.rwrd.exact_eval(self.xref, _uref_padd))
+        _trace.append(self.rwrd.evalf(self.xref, _uref_padd))
 
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
@@ -169,7 +169,7 @@ class iLQG:
                     # apply on actual system
                     _data = self.forward_pass(ctl=lc, alpha=alpha)
                     _u_padd = np.hstack((_data['u'], np.zeros((self.nb_udim, 1))))
-                    _return = self.rwrd.exact_eval(_data['x'], _u_padd)
+                    _return = self.rwrd.evalf(_data['x'], _u_padd)
 
                     # check return improvement
                     _dreturn = _return - self.last_return

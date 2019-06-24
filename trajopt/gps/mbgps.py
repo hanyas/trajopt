@@ -30,9 +30,9 @@ class MBGPS:
         self.env_sigma = self.env.unwrapped.sigma
 
         self.env_rwrd = self.env.unwrapped.reward
-        self.env_init = self.env.unwrapped.initialize
+        self.env_init = self.env.unwrapped.init
 
-        self.alim = self.env.action_space.high
+        self.ulim = self.env.action_space.high
 
         self.nb_xdim = self.env.observation_space.shape[0]
         self.nb_udim = self.env.action_space.shape[0]
@@ -83,7 +83,7 @@ class MBGPS:
                 data['r'][t] = r
 
                 data['x'][..., t, n] = x
-                x, _, _, _ = self.env.step(np.clip(u, - self.alim, self.alim))
+                x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
             r = self.env.unwrapped.reward(x, np.zeros((self.nb_udim, )), self.activation[-1])
@@ -178,20 +178,18 @@ class MBGPS:
         plt.show()
 
     def run(self):
+        # get linear system dynamics around mean traj.
+        self.dyn.diff(self.xdist.mu, self.udist.mu)
+
+        # get quadratic reward around mean traj.
+        self.rwrd.diff(self.xdist.mu, self.udist.mu)
+
         # current state distribution
         self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
-        # get linear system dynamics around mean traj.
-        self.dyn.diff(self.xudist.mu[:self.nb_xdim, :],
-                      self.xudist.mu[self.nb_xdim:, :])
-
-        # get quadratic reward around mean traj.
-        self.rwrd.diff(self.xudist.mu[:self.nb_xdim, :],
-                       self.xudist.mu[self.nb_xdim:, :])
-
         # summed mean return
-        ret = self.rwrd.exact_eval(self.xudist.mu[:self.nb_xdim, :],
-                                   self.xudist.mu[self.nb_xdim:, :])
+        ret = self.rwrd.evalf(self.xudist.mu[:self.nb_xdim, :],
+                              self.xudist.mu[self.nb_xdim:, :])
 
         # use scipy optimizer
         res = sc.optimize.minimize(self.dual, np.array([1.e2]),

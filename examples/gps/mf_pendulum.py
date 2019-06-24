@@ -15,11 +15,11 @@ env = gym.make('Pendulum-TO-v0')
 env._max_episode_steps = 150
 
 alg = MFGPS(env, nb_steps=150,
-            kl_bound=50.,
+            kl_bound=25.,
             init_ctl_sigma=1.0)
 
 # run gps
-for _ in range(5):
+for _ in range(3):
     alg.run(nb_episodes=10)
 
 # plot dists

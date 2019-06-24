@@ -71,7 +71,7 @@ class AnalyticalQuadraticReward(QuadraticReward):
         self.drdx = jacobian(self.f, 0)
         self.drdu = jacobian(self.f, 1)
 
-    def exact_eval(self, x, u):
+    def evalf(self, x, u):
         ret = 0.0
         for t in range(self.nb_steps):
             ret += self.f(x[..., t], u[..., t], self.a[..., t])
@@ -132,16 +132,12 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
 
         self._sigma = sigma
 
-    def approx_eval(self, x, u, t, const=False):
+    def approx(self, x, u, t):
         xn = np.zeros((self.nb_xdim, ))
         # linear state
         xn += np.einsum('h,kh->k', x, self.A[..., t])
         # linear action
         xn += np.einsum('h,kh->k', u, self.B[..., t])
-        # constant
-        if const:
-            # constant term
-            xn += self.c
         return xn
 
     def diff(self, x, u):
@@ -149,7 +145,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
             self.A[..., t] = self.dfdx(x[..., t], u[..., t])
             self.B[..., t] = self.dfdu(x[..., t], u[..., t])
             self.c[..., t] = self.f(x[..., t], u[..., t]) -\
-                             self.approx_eval(x[..., t], u[..., t], t)
+                             self.approx(x[..., t], u[..., t], t)
             self.sigma[..., t] = self._sigma
 
 
