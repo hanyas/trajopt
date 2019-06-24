@@ -36,6 +36,22 @@ class DoubleCartpole(gym.Env):
     def sigma(self):
         return self._sigma
 
+    @property
+    def xlim(self):
+        return self._xmax
+
+    @property
+    def ulim(self):
+        return self._umax
+
+    @property
+    def dt(self):
+        return self._dt
+
+    @property
+    def goal(self):
+        return self._g
+
     def dynamics(self, x, u):
         # import from: https://github.com/JoeMWatson/input-inference-for-control/
         """
@@ -130,7 +146,7 @@ class DoubleCartpole(gym.Env):
         else:
             return u.T @ np.diag(self._uw) @ u
 
-    def initialize(self):
+    def init(self):
         # mu, sigma
         return np.array([0., np.pi, 0., 0., 0., 0.]), 1.e-4 * np.eye(self.nb_xdim)
 
@@ -144,6 +160,6 @@ class DoubleCartpole(gym.Env):
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self.initialize()
+        _mu_0, _sigma_0 = self.init()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
         return self.state

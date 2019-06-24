@@ -8,13 +8,17 @@ import autograd.numpy as np
 class LQR(gym.Env):
 
     def __init__(self):
+        self.nb_xdim = 2
+        self.nb_udim = 1
+
+        self._dt = 0.01
+
         self._A = np.array([[1., 1.e-2], [0., 1.]])
         self._B = np.array([[0.], [1.]])
         self._c = np.zeros((2, ))
 
         self._sigma = 1.e-8 * np.eye(2)
 
-        self._dt = 0.01
         self._g = np.array([1., 0])
 
         self._xw = - 1. * np.array([1.e1, 1.e-1])
@@ -36,6 +40,22 @@ class LQR(gym.Env):
     def sigma(self):
         return self._sigma
 
+    @property
+    def xlim(self):
+        return self._xmax
+
+    @property
+    def ulim(self):
+        return self._umax
+
+    @property
+    def dt(self):
+        return self._dt
+
+    @property
+    def goal(self):
+        return self._g
+
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
 
@@ -51,7 +71,7 @@ class LQR(gym.Env):
         else:
             return u.T @ np.diag(self._uw) @ u
 
-    def initialize(self):
+    def init(self):
         # mu, sigma
         return np.array([0., 0.]), 1.e-8 * np.eye(2)
 
@@ -65,6 +85,6 @@ class LQR(gym.Env):
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self.initialize()
+        _mu_0, _sigma_0 = self.init()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
         return self.state
