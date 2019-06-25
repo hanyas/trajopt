@@ -7,7 +7,7 @@
 
 import autograd.numpy as np
 
-from trajopt.ilqr.objects import AnalyticalLinearDynamics, AnalyticalQuadraticReward
+from trajopt.ilqr.objects import AnalyticalLinearDynamics, AnalyticalQuadraticCost
 from trajopt.ilqr.objects import QuadraticStateValue, QuadraticStateActionValue
 from trajopt.ilqr.objects import LinearControl
 
@@ -20,13 +20,14 @@ class iLQR:
                  alphas=np.power(10., np.linspace(0, -3, 11)),
                  lmbda=1., dlmbda=1.,
                  min_lmbda=1.e-6, max_lmbda=1.e3, mult_lmbda=1.6,
-                 tolfun=1.e-7, tolgrad=1.e-4, zmin=0., reg=1,
+                 tolfun=1.e-7, tolgrad=1.e-4, min_imp=0., reg=1,
                  activation='last'):
 
         self.env = env
 
+        # expose necessary functions
         self.env_dyn = self.env.unwrapped.dynamics
-        self.env_rwrd = self.env.unwrapped.reward
+        self.env_cost = self.env.unwrapped.cost
         self.env_init = self.env.unwrapped.init
 
         self.ulim = self.env.action_space.high
@@ -45,7 +46,9 @@ class iLQR:
 
         # regularization type
         self.reg = reg
-        self.zmin = zmin
+
+        # minimum relative improvement
+        self.min_imp = min_imp
 
         # stopping criterion
         self.tolfun = tolfun
@@ -53,8 +56,7 @@ class iLQR:
 
         # reference trajectory
         self.xref = np.zeros((self.nb_xdim, self.nb_steps + 1))
-        for t in range(self.nb_steps + 1):
-            self.xref[..., t], _ = self.env_init()
+        self.xref[..., 0] = self.env_init()[0]
 
         self.uref = np.zeros((self.nb_udim, self.nb_steps))
 
@@ -64,32 +66,34 @@ class iLQR:
         self.dyn = AnalyticalLinearDynamics(self.env_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
 
-        # activation of reward function
+        # activation of cost function
         if activation == 'all':
             self.activation = np.ones((self.nb_steps + 1,), dtype=np.int64)
         else:
             self.activation = np.zeros((self.nb_steps + 1, ), dtype=np.int64)
             self.activation[-1] = 1
-        self.rwrd = AnalyticalQuadraticReward(self.env_rwrd, self.nb_xdim, self.nb_udim,
-                                              self.nb_steps + 1, self.activation)
 
-        self.last_return = - np.inf
+        self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
+
+        self.last_objective = - np.inf
 
     def forward_pass(self, ctl, alpha):
-        data = {'x': np.zeros((self.nb_xdim, self.nb_steps + 1)),
-                'u': np.zeros((self.nb_udim, self.nb_steps))}
+        state = np.zeros((self.nb_xdim, self.nb_steps + 1))
+        action = np.zeros((self.nb_udim, self.nb_steps))
 
-        x = self.env.reset()
-        data['x'][..., 0] = x
+        x, _ = self.env_init()
+        state[..., 0] = x
 
         for t in range(self.nb_steps):
-            u = ctl.apply(x, alpha, self.xref, self.uref, t)
-            data['u'][..., t] = u
+            # apply action
+            u = ctl.action(x, alpha, self.xref, self.uref, t)
+            # evolve dynamics
+            x = self.env_dyn(x, u)
 
-            x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
-            data['x'][..., t + 1] = x
+            state[..., t + 1] = x
+            action[..., t] = u
 
-        return data
+        return state, action
 
     def backward_pass(self):
         lc = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
@@ -99,8 +103,8 @@ class iLQR:
         xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
         xuvalue.qx, xuvalue.qu,\
         xvalue.V, xvalue.v, dV,\
-        lc.K, lc.kff, diverge = backward_pass(self.rwrd.Rxx, self.rwrd.rx, self.rwrd.Ruu,
-                                              self.rwrd.ru, self.rwrd.Rxu,
+        lc.K, lc.kff, diverge = backward_pass(self.cost.Cxx, self.cost.cx, self.cost.Cuu,
+                                              self.cost.cu, self.cost.Cxu,
                                               self.dyn.A, self.dyn.B,
                                               self.lmbda, self.reg,
                                               self.nb_xdim, self.nb_udim, self.nb_steps)
@@ -123,17 +127,35 @@ class iLQR:
 
         plt.show()
 
+    def objective(self, x, u):
+        _return = 0.0
+        for t in range(self.nb_steps):
+            _return += self.env_cost(x[..., t], u[..., t], self.activation[..., t])
+        _return += self.env_cost(x[..., -1], np.zeros((self.nb_udim,)), self.activation[..., -1])
+
+        return _return
+
     def run(self, nb_iter=250):
         _trace = []
-        _uref_padd = np.hstack((self.uref, np.zeros((self.nb_udim, 1))))
-        _trace.append(self.rwrd.evalf(self.xref, _uref_padd))
+
+        # init trajectory
+        for alpha in self.alphas:
+            _state, _action = self.forward_pass(self.ctl, alpha)
+            if np.all(_state < 1.e8):
+                self.xref = _state
+                self.uref = _action
+                self.last_objective = self.objective(self.xref, self.uref)
+            else:
+                print("Initial trajectory diverges")
+
+        _trace.append(self.objective)
 
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
-            self.dyn.diff(self.xref, self.uref)
+            self.dyn.finite_diff(self.xref, self.uref)
 
-            # get quadratic reward around ref traj.
-            self.rwrd.diff(self.xref, self.uref)
+            # get quadratic cost around ref traj.
+            self.cost.finite_diff(self.xref, self.uref, self.activation)
 
             xvalue, xuvalue = None, None
             lc, dvalue = None, None
@@ -153,27 +175,29 @@ class iLQR:
                     backpass_done = True
 
             # terminate if gradient too small
-            g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref[..., -1]) + 1.), axis=1))
-            if g_norm < self.tolgrad and self.lmbda < 1.e-5:
+            _g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref[..., -1]) + 1.), axis=1))
+            if _g_norm < self.tolgrad and self.lmbda < 1.e-5:
                 self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
                 self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
                 break
 
-            _data, _return, _dreturn = None, None, None
+            _state, _action = None, None
+            _return, _dreturn = None, None
             # execute a forward pass
             fwdpass_done = False
             if backpass_done:
                 for alpha in self.alphas:
                     # apply on actual system
-                    _data = self.forward_pass(ctl=lc, alpha=alpha)
-                    _u_padd = np.hstack((_data['u'], np.zeros((self.nb_udim, 1))))
-                    _return = self.rwrd.evalf(_data['x'], _u_padd)
+                    _state, _action = self.forward_pass(ctl=lc, alpha=alpha)
+
+                    # summed mean return
+                    _return = self.objective(_state, _action)
 
                     # check return improvement
-                    _dreturn = _return - self.last_return
-                    expected = alpha * (dvalue[0] + alpha * dvalue[1])
-                    z = _dreturn / expected
-                    if z > self.zmin:
+                    _dreturn = self.last_objective - _return
+                    _expected = - 1. * alpha * (dvalue[0] + alpha * dvalue[1])
+                    _imp = _dreturn / _expected
+                    if _imp > self.min_imp:
                         fwdpass_done = True
                         break
 
@@ -183,18 +207,18 @@ class iLQR:
                 self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
                 self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
 
-                self.xref = _data['x']
-                self.uref = _data['u']
+                self.xref = _state
+                self.uref = _action
+                self.last_objective = _return
 
                 self.vfunc = xvalue
                 self.qfunc = xuvalue
 
-                self.last_return = _return
                 self.ctl = lc
 
-                _trace.append(_return)
+                _trace.append(self.objective)
 
-                # terminate if reached reward tolerance
+                # terminate if reached objective tolerance
                 if _dreturn < self.tolfun:
                     break
             else:

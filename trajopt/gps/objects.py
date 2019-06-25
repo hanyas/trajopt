@@ -9,7 +9,7 @@ import autograd.numpy as np
 from autograd import jacobian, hessian
 
 
-class GaussianInTime:
+class Gaussian:
     def __init__(self, nb_dim, nb_steps):
         self.nb_dim = nb_dim
         self.nb_steps = nb_steps
@@ -60,76 +60,67 @@ class QuadraticStateActionValue:
         self.q0_softmax = np.zeros((self.nb_steps, ))
 
 
-class QuadraticReward:
-    def __init__(self, nb_xdim, nb_udim, nb_steps, activation=None):
+class QuadraticCost:
+    def __init__(self, nb_xdim, nb_udim, nb_steps):
         self.nb_xdim = nb_xdim
         self.nb_udim = nb_udim
 
         self.nb_steps = nb_steps
 
-        self.Rxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.rx = np.zeros((self.nb_xdim, self.nb_steps))
+        self.Cxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
+        self.cx = np.zeros((self.nb_xdim, self.nb_steps))
 
-        self.Ruu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        self.ru = np.zeros((self.nb_udim, self.nb_steps))
+        self.Cuu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
+        self.cu = np.zeros((self.nb_udim, self.nb_steps))
 
-        self.Rxu = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
-        self.r0 = np.zeros((self.nb_steps, ))
-
-        # activation of reward function
-        self.a = activation
+        self.Cxu = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
+        self.c0 = np.zeros((self.nb_steps, ))
 
     @property
     def params(self):
-        return self.Rxx, self.rx, self.Ruu, self.ru, self.Rxu, self.r0
+        return self.Cxx, self.cx, self.Cuu, self.cu, self.Cxu, self.c0
 
     @params.setter
     def params(self, values):
-        self.Rxx, self.rx, self.Ruu, self.ru, self.Rxu, self.r0 = values
+        self.Cxx, self.cx, self.Cuu, self.cu, self.Cxu, self.c0 = values
 
 
-class AnalyticalQuadraticReward(QuadraticReward):
-    def __init__(self, f, nb_xdim, nb_udim, nb_steps, activation):
-        super(AnalyticalQuadraticReward, self).__init__(nb_xdim, nb_udim, nb_steps, activation)
+class AnalyticalQuadraticCost(QuadraticCost):
+    def __init__(self, f, nb_xdim, nb_udim, nb_steps):
+        super(AnalyticalQuadraticCost, self).__init__(nb_xdim, nb_udim, nb_steps)
 
         self.f = f
-        self.drdxx = hessian(self.f, 0)
-        self.drduu = hessian(self.f, 1)
-        self.drdxu = jacobian(jacobian(self.f, 0), 1)
+        self.dcdxx = hessian(self.f, 0)
+        self.dcduu = hessian(self.f, 1)
+        self.dcdxu = jacobian(jacobian(self.f, 0), 1)
 
-        self.drdx = jacobian(self.f, 0)
-        self.drdu = jacobian(self.f, 1)
+        self.dcdx = jacobian(self.f, 0)
+        self.dcdu = jacobian(self.f, 1)
 
-    def evalf(self, x, u):
-        ret = 0.0
-        for t in range(self.nb_steps):
-            ret += self.f(x[..., t], u[..., t], self.a[..., t])
-        return ret
-
-    def diff(self, x, u):
+    def finite_diff(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
 
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t], self.a[t]])
+            _in = tuple([x[..., t], _u[..., t], a[t]])
             if t == self.nb_steps - 1:
-                self.Rxx[..., t] = 0.5 * self.drdxx(*_in)
-                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ x[..., t]
+                self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
+                self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t]
             else:
-                self.Rxx[..., t] = 0.5 * self.drdxx(*_in)
-                self.Ruu[..., t] = 0.5 * self.drduu(*_in)
-                self.Rxu[..., t] = 0.5 * self.drdxu(*_in)
+                self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
+                self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
+                self.Cxu[..., t] = 0.5 * self.dcdxu(*_in)
 
-                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ x[..., t] - 0.5 * self.drdxu(*_in) @ _u[..., t]
-                self.ru[..., t] = self.drdu(*_in) - self.drduu(*_in) @ _u[..., t] - 0.5 * x[..., t].T @ self.drdxu(*_in)
+                self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - 0.5 * self.dcdxu(*_in) @ _u[..., t]
+                self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - 0.5 * x[..., t].T @ self.dcdxu(*_in)
 
             # residual of taylor expansion
-            self.r0[..., t] = self.f(*_in) -\
-                              x[..., t].T @ self.Rxx[..., t] @ x[..., t] -\
-                              _u[..., t].T @ self.Ruu[..., t] @ _u[..., t] -\
-                              x[..., t].T @ self.Rxu[..., t] @ _u[..., t] -\
-                              self.rx[..., t].T @ x[..., t] -\
-                              self.ru[..., t].T @ _u[..., t]
+            self.c0[..., t] = self.f(*_in) -\
+                              x[..., t].T @ self.Cxx[..., t] @ x[..., t] -\
+                              _u[..., t].T @ self.Cuu[..., t] @ _u[..., t] -\
+                              x[..., t].T @ self.Cxu[..., t] @ _u[..., t] -\
+                              self.cx[..., t].T @ x[..., t] -\
+                              self.cu[..., t].T @ _u[..., t]
 
 
 class LinearGaussianDynamics:
@@ -158,23 +149,22 @@ class LinearGaussianDynamics:
 
 
 class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
-    def __init__(self, f, sigma, nb_xdim, nb_udim, nb_steps):
+    def __init__(self, f, noise, nb_xdim, nb_udim, nb_steps):
         super(AnalyticalLinearGaussianDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
 
         self.f = f
+        self.noise = noise
+
         self.dfdx = jacobian(self.f, 0)
         self.dfdu = jacobian(self.f, 1)
 
-        self._sigma = sigma
-
-    def diff(self, x, u):
-        for t in range(self.nb_steps):
-            self.A[..., t] = self.dfdx(x[..., t], u[..., t])
-            self.B[..., t] = self.dfdu(x[..., t], u[..., t])
-            # residual of taylor expansion
-            self.c[..., t] = self.f(x[..., t], u[..., t]) -\
-                             self.A[..., t] @ x[..., t] - self.B[..., t] @ u[..., t]
-            self.sigma[..., t] = self._sigma
+    def finite_diff(self, x, u):
+        _A = self.dfdx(x, u)
+        _B = self.dfdu(x, u)
+        # residual of taylor expansion
+        _c = self.f(x, u) - _A @ x - _B @ u
+        _sigma = self.noise(x, u)
+        return _A, _B, _c, _sigma
 
 
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):

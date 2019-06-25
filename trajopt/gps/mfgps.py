@@ -5,17 +5,17 @@
 # @Author: Hany Abdulsamad
 # @Contact: hany@robot-learning.de
 
-import numpy as np
+import autograd.numpy as np
 
 import scipy as sc
 from scipy import optimize
 
-from trajopt.gps.objects import GaussianInTime, QuadraticReward
-from trajopt.gps.objects import LearnedLinearGaussianDynamics, AnalyticalQuadraticReward
+from trajopt.gps.objects import Gaussian, QuadraticCost
+from trajopt.gps.objects import LearnedLinearGaussianDynamics, AnalyticalQuadraticCost
 from trajopt.gps.objects import QuadraticStateValue, QuadraticStateActionValue
 from trajopt.gps.objects import LinearGaussianControl
 
-from trajopt.gps.core import kl_divergence, quad_expectation, augment_reward
+from trajopt.gps.core import kl_divergence, quad_expectation, augment_cost
 from trajopt.gps.core import forward_pass, backward_pass
 
 
@@ -26,10 +26,10 @@ class MFGPS:
 
         self.env = env
 
+        # expose necessary functions
         self.env_dyn = self.env.unwrapped.dynamics
-        self.env_sigma = self.env.unwrapped.sigma
-
-        self.env_rwrd = self.env.unwrapped.reward
+        self.env_noise = self.env.unwrapped.noise
+        self.env_cost = self.env.unwrapped.cost
         self.env_init = self.env.unwrapped.init
 
         self.ulim = self.env.action_space.high
@@ -40,15 +40,14 @@ class MFGPS:
 
         # total kl over traj.
         self.kl_bound = kl_bound
-        self.alpha = np.array([100.])
+        self.alpha = np.array([-100.])
 
         # create state distribution and initialize first time step
-        self.xdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
-        for t in range(self.nb_steps + 1):
-            self.xdist.mu[..., t], self.xdist.sigma[..., t] = self.env_init()
+        self.xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
+        self.xdist.mu[..., 0], self.xdist.sigma[..., 0] = self.env_init()
 
-        self.udist = GaussianInTime(self.nb_udim, self.nb_steps)
-        self.xudist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
+        self.udist = Gaussian(self.nb_udim, self.nb_steps)
+        self.xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
@@ -56,14 +55,14 @@ class MFGPS:
         self.dyn = LearnedLinearGaussianDynamics(self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
 
-        # activation of reward function
+        # activation of cost function
         if activation == 'all':
             self.activation = np.ones((self.nb_steps + 1,), dtype=np.int64)
         else:
             self.activation = np.zeros((self.nb_steps + 1, ), dtype=np.int64)
             self.activation[-1] = 1
-        self.rwrd = AnalyticalQuadraticReward(self.env_rwrd, self.nb_xdim,
-                                              self.nb_udim, self.nb_steps + 1, self.activation)
+
+        self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
 
         self.data = {}
 
@@ -71,7 +70,7 @@ class MFGPS:
         data = {'x': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
                 'u': np.zeros((self.nb_udim, self.nb_steps, nb_episodes)),
                 'xn': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
-                'r': np.zeros((self.nb_steps + 1, nb_episodes))}
+                'c': np.zeros((self.nb_steps + 1, nb_episodes))}
 
         for n in range(nb_episodes):
             x = self.env.reset()
@@ -81,22 +80,22 @@ class MFGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                r = self.env.unwrapped.reward(x, u, self.activation[t])
-                data['r'][t] = r
+                c = self.env_cost(x, u, self.activation[t])
+                data['c'][t] = c
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
-            r = self.env.unwrapped.reward(x, np.zeros((self.nb_udim, )), self.activation[-1])
-            data['r'][-1, n] = r
+            c = self.env_cost(x, np.zeros((self.nb_udim, )), self.activation[-1])
+            data['c'][-1, n] = c
 
         return data
 
     def forward_pass(self, lgc):
-        xdist = GaussianInTime(self.nb_xdim, self.nb_steps + 1)
-        udist = GaussianInTime(self.nb_udim, self.nb_steps)
-        xudist = GaussianInTime(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
+        xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
+        udist = Gaussian(self.nb_udim, self.nb_steps)
+        xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
         xdist.mu, xdist.sigma,\
         udist.mu, udist.sigma,\
@@ -106,7 +105,7 @@ class MFGPS:
                                                self.nb_xdim, self.nb_udim, self.nb_steps)
         return xdist, udist, xudist
 
-    def backward_pass(self, alpha, agrwrd):
+    def backward_pass(self, alpha, agcost):
         lgc = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps)
         xvalue = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         xuvalue = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
@@ -114,27 +113,27 @@ class MFGPS:
         xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
         xuvalue.qx, xuvalue.qu, xuvalue.q0, xuvalue.q0_softmax,\
         xvalue.V, xvalue.v, xvalue.v0, xvalue.v0_softmax,\
-        lgc.K, lgc.kff, lgc.sigma = backward_pass(agrwrd.Rxx, agrwrd.rx, agrwrd.Ruu,
-                                                  agrwrd.ru, agrwrd.Rxu, agrwrd.r0,
+        lgc.K, lgc.kff, lgc.sigma = backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
+                                                  agcost.cu, agcost.Cxu, agcost.c0,
                                                   self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
                                                   alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
         return lgc, xvalue, xuvalue
 
-    def augment_reward(self, alpha):
-        agrwrd = QuadraticReward(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
-        agrwrd.Rxx, agrwrd.rx, agrwrd.Ruu,\
-        agrwrd.ru, agrwrd.Rxu, agrwrd.r0 = augment_reward(self.rwrd.Rxx, self.rwrd.rx, self.rwrd.Ruu,
-                                                          self.rwrd.ru, self.rwrd.Rxu, self.rwrd.r0,
-                                                          self.ctl.K, self.ctl.kff, self.ctl.sigma,
-                                                          alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
-        return agrwrd
+    def augment_cost(self, alpha):
+        agcost = QuadraticCost(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
+        agcost.Cxx, agcost.cx, agcost.Cuu,\
+        agcost.cu, agcost.Cxu, agcost.c0 = augment_cost(self.cost.Cxx, self.cost.cx, self.cost.Cuu,
+                                                        self.cost.cu, self.cost.Cxu, self.cost.c0,
+                                                        self.ctl.K, self.ctl.kff, self.ctl.sigma,
+                                                        alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
+        return agcost
 
     def dual(self, alpha):
-        # augmented reward
-        agrwrd = self.augment_reward(alpha)
+        # augmented cost
+        agcost = self.augment_cost(alpha)
 
         # backward pass
-        lgc, xvalue, xuvalue = self.backward_pass(alpha, agrwrd)
+        lgc, xvalue, xuvalue = self.backward_pass(alpha, agcost)
 
         # forward pass
         xdist, udist, xudist = self.forward_pass(lgc)
@@ -148,7 +147,7 @@ class MFGPS:
         # gradient
         grad = self.kl_bound - self.kldiv(lgc, xdist)
 
-        return np.array([dual]), np.array([grad])
+        return -1. * np.array([dual]), -1. * np.array([grad])
 
     def kldiv(self, lgc, xdist):
         return kl_divergence(lgc.K, lgc.kff, lgc.sigma,
@@ -179,6 +178,15 @@ class MFGPS:
 
         plt.show()
 
+    def objective(self, x, u):
+        # summed mean return
+        _return = 0.0
+        for t in range(self.nb_steps):
+            _return += self.env_cost(x[..., t], u[..., t], self.activation[..., t])
+        _return += self.env_cost(x[..., -1], np.zeros((self.nb_udim, )), self.activation[..., -1])
+
+        return _return
+
     def run(self, nb_episodes):
         # run current controller
         self.data = self.sample(nb_episodes)
@@ -186,28 +194,27 @@ class MFGPS:
         # fit time-variant linear dynamics
         self.dyn.learn(self.data)
 
-        # get quadratic reward around mean traj.
-        self.rwrd.diff(self.xdist.mu, self.udist.mu)
+        # get quadratic cost around mean traj.
+        self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
 
         # current state distribution
         self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
-        # summed mean return
-        ret = self.rwrd.evalf(self.xudist.mu[:self.nb_xdim, :],
-                              self.xudist.mu[self.nb_xdim:, :])
+        # mean objective under current dists.
+        ret = self.objective(self.xdist.mu, self.udist.mu)
 
         # use scipy optimizer
-        res = sc.optimize.minimize(self.dual, np.array([1.e2]),
+        res = sc.optimize.minimize(self.dual, np.array([-1.e2]),
                                    method='L-BFGS-B',
                                    jac=True,
-                                   bounds=((1e-8, 1e8), ),
+                                   bounds=((-1e8, -1e-8), ),
                                    options={'disp': False, 'maxiter': 1000,
                                             'ftol': 1e-10})
         self.alpha = res.x
 
         # re-compute after opt.
-        agrwrd = self.augment_reward(self.alpha)
-        lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agrwrd)
+        agcost = self.augment_cost(self.alpha)
+        lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agcost)
         xdist, udist, xudist = self.forward_pass(lgc)
 
         # check kl constraint

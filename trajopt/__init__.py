@@ -23,3 +23,9 @@ register(
     entry_point='trajopt.envs:DoubleCartpole',
     max_episode_steps=1000,
 )
+
+register(
+    id='LightDark-TO-v0',
+    entry_point='trajopt.envs:LightDark',
+    max_episode_steps=1000,
+)

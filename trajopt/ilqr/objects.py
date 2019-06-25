@@ -32,66 +32,58 @@ class QuadraticStateActionValue:
         self.qu = np.zeros((self.nb_udim, self.nb_steps, ))
 
 
-class QuadraticReward:
-    def __init__(self, nb_xdim, nb_udim, nb_steps, activation):
+class QuadraticCost:
+    def __init__(self, nb_xdim, nb_udim, nb_steps):
         self.nb_xdim = nb_xdim
         self.nb_udim = nb_udim
 
         self.nb_steps = nb_steps
 
-        self.Rxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.rx = np.zeros((self.nb_xdim, self.nb_steps))
+        self.Cxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
+        self.cx = np.zeros((self.nb_xdim, self.nb_steps))
 
-        self.Ruu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        self.ru = np.zeros((self.nb_udim, self.nb_steps))
+        self.Cuu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
+        self.cu = np.zeros((self.nb_udim, self.nb_steps))
 
-        self.Rxu = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
-
-        # activation of reward function
-        self.a = activation
+        self.Cxu = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
 
     @property
     def params(self):
-        return self.Rxx, self.rx, self.Ruu, self.ru, self.Rxu
+        return self.Cxx, self.cx, self.Cuu, self.cu, self.Cxu
 
     @params.setter
     def params(self, values):
-        self.Rxx, self.rx, self.Ruu, self.ru, self.Rxu = values
+        self.Cxx, self.cx, self.Cuu, self.cu, self.Cxu = values
 
 
-class AnalyticalQuadraticReward(QuadraticReward):
-    def __init__(self, f, nb_xdim, nb_udim, nb_steps, activation):
-        super(AnalyticalQuadraticReward, self).__init__(nb_xdim, nb_udim, nb_steps, activation)
+class AnalyticalQuadraticCost(QuadraticCost):
+    def __init__(self, f, nb_xdim, nb_udim, nb_steps):
+        super(AnalyticalQuadraticCost, self).__init__(nb_xdim, nb_udim, nb_steps)
 
         self.f = f
-        self.drdxx = hessian(self.f, 0)
-        self.drduu = hessian(self.f, 1)
-        self.drdxu = jacobian(jacobian(self.f, 0), 1)
+        self.dcdxx = hessian(self.f, 0)
+        self.dcduu = hessian(self.f, 1)
+        self.dcdxu = jacobian(jacobian(self.f, 0), 1)
 
-        self.drdx = jacobian(self.f, 0)
-        self.drdu = jacobian(self.f, 1)
+        self.dcdx = jacobian(self.f, 0)
+        self.dcdu = jacobian(self.f, 1)
 
-    def evalf(self, x, u):
-        ret = 0.0
-        for t in range(self.nb_steps):
-            ret += self.f(x[..., t], u[..., t], self.a[..., t])
-        return ret
-
-    def diff(self, x, u):
+    def finite_diff(self, x, u, a):
+        # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
 
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t], self.a[t]])
+            _in = tuple([x[..., t], _u[..., t], a[t]])
             if t == self.nb_steps - 1:
-                self.Rxx[..., t] = self.drdxx(*_in)
-                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ x[..., t]
+                self.Cxx[..., t] = self.dcdxx(*_in)
+                self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t]
             else:
-                self.Rxx[..., t] = self.drdxx(*_in)
-                self.Ruu[..., t] = self.drduu(*_in)
-                self.Rxu[..., t] = self.drdxu(*_in)
+                self.Cxx[..., t] = self.dcdxx(*_in)
+                self.Cuu[..., t] = self.dcduu(*_in)
+                self.Cxu[..., t] = self.dcdxu(*_in)
 
-                self.rx[..., t] = self.drdx(*_in) - self.drdxx(*_in) @ x[..., t] - self.drdxu(*_in) @ _u[..., t]
-                self.ru[..., t] = self.drdu(*_in) - self.drduu(*_in) @ _u[..., t] - x[..., t].T @ self.drdxu(*_in)
+                self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - self.dcdxu(*_in) @ _u[..., t]
+                self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - x[..., t].T @ self.dcdxu(*_in)
 
 
 class LinearDynamics:
@@ -123,7 +115,7 @@ class AnalyticalLinearDynamics(LinearDynamics):
         self.dfdx = jacobian(self.f, 0)
         self.dfdu = jacobian(self.f, 1)
 
-    def diff(self, x, u):
+    def finite_diff(self, x, u):
         for t in range(self.nb_steps):
             self.A[..., t] = self.dfdx(x[..., t], u[..., t])
             self.B[..., t] = self.dfdu(x[..., t], u[..., t])
@@ -146,6 +138,6 @@ class LinearControl:
     def params(self, values):
         self.K, self.kff = values
 
-    def apply(self, x, alpha, xref, uref, t):
+    def action(self, x, alpha, xref, uref, t):
         dx = x - xref[:, t]
         return uref[:, t] + alpha * self.kff[..., t] + self.K[..., t] @ dx

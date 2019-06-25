@@ -80,18 +80,18 @@ array_tf vec_to_array(vec m) {
 }
 
 
-py::tuple backward_pass(array_tf _Rxx, array_tf _rx, array_tf _Ruu,
-                        array_tf _ru, array_tf _Rxu,
+py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
+                        array_tf _cu, array_tf _Cxu,
                         array_tf _A, array_tf _B,
                         double lmbda, int reg,
                         int nb_xdim, int nb_udim, int nb_steps) {
 
     // inputs
-    cube Rxx = array_to_cube(_Rxx);
-    mat rx = array_to_mat(_rx);
-    cube Ruu = array_to_cube(_Ruu);
-    mat ru = array_to_mat(_ru);
-    cube Rxu = array_to_cube(_Rxu);
+    cube Cxx = array_to_cube(_Cxx);
+    mat cx = array_to_mat(_cx);
+    cube Cuu = array_to_cube(_Cuu);
+    mat cu = array_to_mat(_cu);
+    cube Cxu = array_to_cube(_Cxu);
 
     cube A = array_to_cube(_A);
     cube B = array_to_cube(_B);
@@ -123,24 +123,24 @@ py::tuple backward_pass(array_tf _Rxx, array_tf _rx, array_tf _Ruu,
 	{
 		if (i < nb_steps)
 		{
-			Qxx.slice(i) = Rxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i);
-            Quu.slice(i) = Ruu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i);
-            Qux.slice(i) = (Rxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t();
+			Qxx.slice(i) = Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i);
+            Quu.slice(i) = Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i);
+            Qux.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t();
 
-            qu.col(i) = ru.col(i) + B.slice(i).t() * v.col(i+1);
-            qx.col(i) = rx.col(i) + A.slice(i).t() * v.col(i+1);
+            qu.col(i) = cu.col(i) + B.slice(i).t() * v.col(i+1);
+            qx.col(i) = cx.col(i) + A.slice(i).t() * v.col(i+1);
 
             V_reg.slice(i+1) = V.slice(i+1);
             if (reg==2)
-                V_reg.slice(i+1) -= lmbda * eye(nb_xdim, nb_xdim);
+                V_reg.slice(i+1) += lmbda * eye(nb_xdim, nb_xdim);
 
-            Qux_reg.slice(i) = (Rxu.slice(i) + A.slice(i).t() * V_reg.slice(i+1) * B.slice(i)).t();
+            Qux_reg.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V_reg.slice(i+1) * B.slice(i)).t();
 
-            Quu_reg.slice(i) = Ruu.slice(i) + B.slice(i).t() * V_reg.slice(i+1) * B.slice(i);
+            Quu_reg.slice(i) = Cuu.slice(i) + B.slice(i).t() * V_reg.slice(i+1) * B.slice(i);
             if (reg==1)
-                Quu_reg.slice(i) -= lmbda * eye(nb_udim, nb_udim);
+                Quu_reg.slice(i) += lmbda * eye(nb_udim, nb_udim);
 
-            if (!(-Quu_reg.slice(i)).is_sympd()) {
+            if (!(Quu_reg.slice(i)).is_sympd()) {
                 _diverge = i;
                 break;
             }
@@ -159,8 +159,8 @@ py::tuple backward_pass(array_tf _Rxx, array_tf _rx, array_tf _Ruu,
             V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
 		}
 		else {
-			V.slice(i) = Rxx.slice(i);
-            v.col(i) = rx.col(i);
+			V.slice(i) = Cxx.slice(i);
+            v.col(i) = cx.col(i);
 		}
 	}
 
