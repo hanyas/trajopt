@@ -16,10 +16,11 @@ env._max_episode_steps = 150
 
 alg = MBGPS(env, nb_steps=150,
             kl_bound=50.,
-            init_ctl_sigma=1.0)
+            init_ctl_sigma=1.0,
+            activation='last')
 
 # run gps
-for _ in range(5):
+for _ in range(3):
     alg.run()
 
 # plot dists

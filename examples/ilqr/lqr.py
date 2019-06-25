@@ -13,7 +13,8 @@ from trajopt.ilqr import iLQR
 env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 100
 
-alg = iLQR(env, nb_steps=100, activation='last')
+alg = iLQR(env, nb_steps=100,
+           activation='last')
 
 # run iLQR
 alg.run()

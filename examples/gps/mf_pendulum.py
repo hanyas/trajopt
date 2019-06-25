@@ -16,7 +16,8 @@ env._max_episode_steps = 150
 
 alg = MFGPS(env, nb_steps=150,
             kl_bound=25.,
-            init_ctl_sigma=1.0)
+            init_ctl_sigma=1.0,
+            activation='last')
 
 # run gps
 for _ in range(3):

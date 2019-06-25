@@ -11,17 +11,17 @@ class DoubleCartpole(gym.Env):
         self.nb_xdim = 6
         self.nb_udim = 1
 
-        self._sigma = 1.e-4 * np.eye(self.nb_xdim)
-
         self._dt = 0.01
         self._g = np.array([0., 2. * np.pi, 0., 0., 0., 0.])
 
-        self._xw = - self._dt * 1. * np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1.e-1])
-        self._uw = - self._dt * 1. * np.array([1.e-3])
+        self._sigma = 1.e-4 * np.eye(self.nb_xdim)
+
+        self._xw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1.e-1])
+        self._uw = np.array([1.e-3])
 
         # x = [x, th1, th2, dx, dth1, dth2]
         self._xmax = np.array([100., np.inf, np.inf, 25., 25., 25.])
-        self._umax = 5.0
+        self._umax = 10.0
 
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
@@ -31,10 +31,6 @@ class DoubleCartpole(gym.Env):
 
         self.seed()
         self.reset()
-
-    @property
-    def sigma(self):
-        return self._sigma
 
     @property
     def xlim(self):
@@ -52,7 +48,13 @@ class DoubleCartpole(gym.Env):
     def goal(self):
         return self._g
 
+    def init(self):
+        # mu, sigma
+        return np.array([0., np.pi, 0., 0., 0., 0.]), 1.e-4 * np.eye(self.nb_xdim)
+
     def dynamics(self, x, u):
+        u = np.clip(u, -self._umax, self._umax)
+
         # import from: https://github.com/JoeMWatson/input-inference-for-control/
         """
         http://www.lirmm.fr/~chemori/Temp/Wafa/double%20pendule%20inverse.pdf
@@ -138,25 +140,32 @@ class DoubleCartpole(gym.Env):
         x_pos = x[:3] + x_dot * self._dt
 
         xn = np.hstack((x_pos, x_dot))
+
+        xn = np.clip(xn, -self._xmax, self._xmax)
         return xn
 
-    def reward(self, x, u, a):
+    def noise(self, x=None, u=None):
+        u = np.clip(u, -self._umax, self._umax)
+        x = np.clip(x, -self._xmax, self._xmax)
+        return self._sigma
+
+    def cost(self, x, u, a):
         if a:
             return (x - self._g).T @ np.diag(self._xw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
         else:
             return u.T @ np.diag(self._uw) @ u
-
-    def init(self):
-        # mu, sigma
-        return np.array([0., np.pi, 0., 0., 0., 0.]), 1.e-4 * np.eye(self.nb_xdim)
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
     def step(self, u):
+        # state-action dependent noise
+        _sigma = self.noise(self.state, u)
+        # evolve deterministic dynamics
         self.state = self.dynamics(self.state, u)
-        self.state = self.np_random.multivariate_normal(mean=self.state, cov=self.sigma)
+        # add noise
+        self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma)
         return self.state, [], False, {}
 
     def reset(self):

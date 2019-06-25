@@ -12,17 +12,17 @@ class LQR(gym.Env):
         self.nb_udim = 1
 
         self._dt = 0.01
+        self._g = np.array([1., 0])
 
+        # stochastic dynamics
         self._A = np.array([[1., 1.e-2], [0., 1.]])
         self._B = np.array([[0.], [1.]])
         self._c = np.zeros((2, ))
 
-        self._sigma = 1.e-8 * np.eye(2)
+        self._sigma = 1.e-4 * np.eye(2)
 
-        self._g = np.array([1., 0])
-
-        self._xw = - 1. * np.array([1.e1, 1.e-1])
-        self._uw = - 1. * np.array([1.e-3])
+        self._xw = np.array([1.e1, 1.e-1])
+        self._uw = np.array([1.e-3])
 
         self._xmax = np.array([np.inf, np.inf])
         self._umax = np.inf
@@ -35,10 +35,6 @@ class LQR(gym.Env):
 
         self.seed()
         self.reset()
-
-    @property
-    def sigma(self):
-        return self._sigma
 
     @property
     def xlim(self):
@@ -56,6 +52,10 @@ class LQR(gym.Env):
     def goal(self):
         return self._g
 
+    def init(self):
+        # mu, sigma
+        return np.array([0., 0.]), 1.e-4 * np.eye(2)
+
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
 
@@ -65,23 +65,28 @@ class LQR(gym.Env):
         xn = np.clip(xn, -self._xmax, self._xmax)
         return xn
 
-    def reward(self, x, u, a):
+    def noise(self, x=None, u=None):
+        u = np.clip(u, -self._umax, self._umax)
+        x = np.clip(x, -self._xmax, self._xmax)
+        return self._sigma
+
+    def cost(self, x, u, a):
         if a:
             return (x - self._g).T @ np.diag(self._xw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
         else:
             return u.T @ np.diag(self._uw) @ u
-
-    def init(self):
-        # mu, sigma
-        return np.array([0., 0.]), 1.e-8 * np.eye(2)
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
     def step(self, u):
+        # state-action dependent noise
+        _sigma = self.noise(self.state, u)
+        # evolve deterministic dynamics
         self.state = self.dynamics(self.state, u)
-        self.state = self.np_random.multivariate_normal(mean=self.state, cov=self.sigma)
+        # add noise
+        self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma)
         return self.state, [], False, {}
 
     def reset(self):
