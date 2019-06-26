@@ -139,6 +139,7 @@ class iLQR:
                 self.xref = _state
                 self.uref = _action
                 self.last_objective = self.objective(self.xref, self.uref)
+                break
             else:
                 print("Initial trajectory diverges")
 
