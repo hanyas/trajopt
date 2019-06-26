@@ -97,6 +97,9 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdx = jacobian(self.f, 0)
         self.dcdu = jacobian(self.f, 1)
 
+    def evalf(self, x, u, a):
+        return self.f(x, u, a)
+
     def finite_diff(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
@@ -149,22 +152,50 @@ class LinearGaussianDynamics:
 
 
 class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
-    def __init__(self, f, noise, nb_xdim, nb_udim, nb_steps):
+    def __init__(self, f_init, f_dyn, noise, nb_xdim, nb_udim, nb_steps):
         super(AnalyticalLinearGaussianDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
 
-        self.f = f
+        self.i = f_init
+        self.f = f_dyn
         self.noise = noise
 
         self.dfdx = jacobian(self.f, 0)
         self.dfdu = jacobian(self.f, 1)
 
+    def evali(self):
+        return self.i()
+
+    def evalf(self, x, u):
+        return self.f(x, u)
+
     def finite_diff(self, x, u):
         _A = self.dfdx(x, u)
         _B = self.dfdu(x, u)
         # residual of taylor expansion
-        _c = self.f(x, u) - _A @ x - _B @ u
+        _c = self.evalf(x, u) - _A @ x - _B @ u
         _sigma = self.noise(x, u)
         return _A, _B, _c, _sigma
+
+    def forward(self, x, u, lgc, t):
+        _mu_x, _sigma_x = x.mu[..., t], x.sigma[..., t]
+        _mu_u, _sigma_u = u.mu[..., t], u.sigma[..., t]
+
+        _K, _kff, _ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
+        _A, _B, _c, _dyn_sigma = self.finite_diff(_mu_x, _mu_u)
+
+        _mu_xn = self.evalf(_mu_x, _mu_u)
+
+        _AB = np.hstack((_A, _B))
+        _sigma_xu = np.vstack((np.hstack((_sigma_x, _sigma_x @ _K.T)),
+                               np.hstack((_K @ _sigma_x, _sigma_u))))
+
+        _sigma_xn = _dyn_sigma + _AB @ _sigma_xu @ _AB.T
+        _sigma_xn = 0.5 * (_sigma_xn + _sigma_xn.T)
+
+        self.A[..., t], self.B[..., t], self.c[..., t] = _A, _B, _c
+        self.sigma[..., t] = _dyn_sigma
+
+        return _mu_xn, _sigma_xn
 
 
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
@@ -239,3 +270,13 @@ class LinearGaussianControl:
             return np.random.multivariate_normal(mean=mu, cov=self.sigma[..., t])
         else:
             return mu
+
+    def forward(self, xdist, t):
+        _x_mu, _x_sigma = xdist.mu[..., t], xdist.sigma[..., t]
+        _K, _kff, _ctl_sigma = self.K[..., t], self.kff[..., t], self.sigma[..., t]
+
+        _u_mu = _K @ _x_mu + _kff
+        _u_sigma = _ctl_sigma + _K @ _x_sigma @ _K.T
+        _u_sigma = 0.5 * (_u_sigma + _u_sigma.T)
+
+        return _u_mu, _u_sigma

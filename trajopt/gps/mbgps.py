@@ -52,7 +52,8 @@ class MBGPS:
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
 
-        self.dyn = AnalyticalLinearGaussianDynamics(self.env_dyn, self.env_noise, self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.dyn = AnalyticalLinearGaussianDynamics(self.env_init, self.env_dyn, self.env_noise,
+                                                    self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
 
         # activation of cost function
@@ -78,14 +79,14 @@ class MBGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env_cost(x, u, self.activation[t])
+                c = self.cost.evalf(x, u, self.activation[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
-            c = self.env_cost(x, np.zeros((self.nb_udim, )), self.activation[-1])
+            c = self.cost.evalf(x, np.zeros((self.nb_udim, )), self.activation[-1])
             data['c'][-1, n] = c
 
         return data
@@ -93,31 +94,12 @@ class MBGPS:
     def extended_kalman(self, lgc):
         xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
         udist = Gaussian(self.nb_udim, self.nb_steps)
-        xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
-        xdist.mu[..., 0], xdist.sigma[..., 0] = self.env_init()
+        xdist.mu[..., 0], xdist.sigma[..., 0] = self.dyn.evali()
         for t in range(self.nb_steps):
-            udist.mu[..., t] = lgc.K[..., t] @ xdist.mu[..., t] + lgc.kff[..., t]
-            udist.sigma[..., t] = lgc.sigma[..., t] + lgc.K[..., t] @ xdist.sigma[..., t] @ lgc.K[..., t].T
-            udist.sigma[..., t] = 0.5 * (udist.sigma[..., t] + udist.sigma[..., t].T)
-
-            xudist.mu[..., t] = np.hstack((xdist.mu[..., t], udist.mu[..., t]))
-            xudist.sigma[..., t] = np.vstack((np.hstack((xdist.sigma[..., t], xdist.sigma[..., t] @ lgc.K[..., t].T)),
-                                              np.hstack((lgc.K[..., t] @ xdist.sigma[..., t], udist.sigma[..., t]))))
-            xudist.sigma[..., t] = 0.5 * (xudist.sigma[..., t] + xudist.sigma[..., t].T)
-
-            # online linearization
-            self.dyn.A[..., t], self.dyn.B[..., t],\
-            self.dyn.c[..., t], self.dyn.sigma[..., t] = self.dyn.finite_diff(xdist.mu[..., t], udist.mu[..., t])
-
-            # extended Kalman filtering step
-            xdist.mu[..., t + 1] = self.env_dyn(xdist.mu[..., t], udist.mu[..., t])
-            xdist.sigma[..., t + 1] = self.dyn.sigma[..., t] + \
-                                      np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])) @ xudist.sigma[..., t] @\
-                                                 np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])).T
-            xdist.sigma[..., t + 1] = 0.5 * (xdist.sigma[..., t + 1] + xdist.sigma[..., t + 1].T)
-
-        return xdist, udist, xudist
+            udist.mu[..., t], udist.sigma[..., t] = lgc.forward(xdist, t)
+            xdist.mu[..., t + 1], xdist.sigma[..., t + 1] = self.dyn.forward(xdist, udist, lgc, t)
+        return xdist, udist
 
     def forward_pass(self, lgc):
         xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
@@ -209,14 +191,14 @@ class MBGPS:
         # summed mean return
         _return = 0.0
         for t in range(self.nb_steps):
-            _return += self.env_cost(x[..., t], u[..., t], self.activation[..., t])
-        _return += self.env_cost(x[..., -1], np.zeros((self.nb_udim, )), self.activation[..., -1])
+            _return += self.cost.evalf(x[..., t], u[..., t], self.activation[..., t])
+        _return += self.cost.evalf(x[..., -1], np.zeros((self.nb_udim, )), self.activation[..., -1])
 
         return _return
 
     def run(self):
         # get linear system dynamics around mean traj.
-        self.xdist, self.udist, self.xudist = self.extended_kalman(self.ctl)
+        self.xdist, self.udist = self.extended_kalman(self.ctl)
 
         # get quadratic cost around mean traj.
         self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)

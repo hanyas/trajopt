@@ -80,14 +80,14 @@ class MFGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env_cost(x, u, self.activation[t])
+                c = self.cost.evalf(x, u, self.activation[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
-            c = self.env_cost(x, np.zeros((self.nb_udim, )), self.activation[-1])
+            c = self.cost.evalf(x, np.zeros((self.nb_udim, )), self.activation[-1])
             data['c'][-1, n] = c
 
         return data
@@ -182,8 +182,8 @@ class MFGPS:
         # summed mean return
         _return = 0.0
         for t in range(self.nb_steps):
-            _return += self.env_cost(x[..., t], u[..., t], self.activation[..., t])
-        _return += self.env_cost(x[..., -1], np.zeros((self.nb_udim, )), self.activation[..., -1])
+            _return += self.cost.evalf(x[..., t], u[..., t], self.activation[..., t])
+        _return += self.cost.evalf(x[..., -1], np.zeros((self.nb_udim, )), self.activation[..., -1])
 
         return _return
 
