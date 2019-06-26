@@ -106,15 +106,15 @@ class MBGPS:
                                               np.hstack((lgc.K[..., t] @ xdist.sigma[..., t], udist.sigma[..., t]))))
             xudist.sigma[..., t] = 0.5 * (xudist.sigma[..., t] + xudist.sigma[..., t].T)
 
-            # online linearization effectively doing extended Kalman filtering
+            # online linearization
             self.dyn.A[..., t], self.dyn.B[..., t],\
             self.dyn.c[..., t], self.dyn.sigma[..., t] = self.dyn.finite_diff(xdist.mu[..., t], udist.mu[..., t])
 
-            xdist.mu[..., t + 1] = np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])) @\
-                                   xudist.mu[..., t] + self.dyn.c[..., t]
+            # extended Kalman filtering step
+            xdist.mu[..., t + 1] = self.env_dyn(xdist.mu[..., t], udist.mu[..., t])
             xdist.sigma[..., t + 1] = self.dyn.sigma[..., t] + \
                                       np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])) @ xudist.sigma[..., t] @\
-                                                 np.vstack((self.dyn.A[..., t].T, self.dyn.B[..., t].T))
+                                                 np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])).T
             xdist.sigma[..., t + 1] = 0.5 * (xdist.sigma[..., t + 1] + xdist.sigma[..., t + 1].T)
 
         return xdist, udist, xudist
