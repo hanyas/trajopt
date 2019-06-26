@@ -170,7 +170,7 @@ class iLQR:
                     backpass_done = True
 
             # terminate if gradient too small
-            _g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref[..., -1]) + 1.), axis=1))
+            _g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref) + 1.), axis=1))
             if _g_norm < self.tolgrad and self.lmbda < 1.e-5:
                 self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
                 self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
