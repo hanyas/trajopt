@@ -90,40 +90,46 @@ class MBGPS:
 
         return data
 
-    def forward_pass(self, lgc, kalman=False):
+    def extended_kalman(self, lgc):
         xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
         udist = Gaussian(self.nb_udim, self.nb_steps)
         xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
 
-        if kalman:
-            xdist.mu[..., 0], xdist.sigma[..., 0] = self.env_init()
-            for t in range(self.nb_steps):
-                udist.mu[..., t] = lgc.K[..., t] @ xdist.mu[..., t] + lgc.kff[..., t]
-                udist.sigma[..., t] = lgc.sigma[..., t] + lgc.K[..., t] @ xdist.sigma[..., t] @ lgc.K[..., t].T
-                udist.sigma[..., t] = 0.5 * (udist.sigma[..., t] + udist.sigma[..., t].T)
+        xdist.mu[..., 0], xdist.sigma[..., 0] = self.env_init()
+        for t in range(self.nb_steps):
+            udist.mu[..., t] = lgc.K[..., t] @ xdist.mu[..., t] + lgc.kff[..., t]
+            udist.sigma[..., t] = lgc.sigma[..., t] + lgc.K[..., t] @ xdist.sigma[..., t] @ lgc.K[..., t].T
+            udist.sigma[..., t] = 0.5 * (udist.sigma[..., t] + udist.sigma[..., t].T)
 
-                xudist.mu[..., t] = np.hstack((xdist.mu[..., t], udist.mu[..., t]))
-                xudist.sigma[..., t] = np.vstack((np.hstack((xdist.sigma[..., t], xdist.sigma[..., t] @ lgc.K[..., t].T)),
-                                                  np.hstack((lgc.K[..., t] @ xdist.sigma[..., t], udist.sigma[..., t]))))
-                xudist.sigma[..., t] = 0.5 * (xudist.sigma[..., t] + xudist.sigma[..., t].T)
+            xudist.mu[..., t] = np.hstack((xdist.mu[..., t], udist.mu[..., t]))
+            xudist.sigma[..., t] = np.vstack((np.hstack((xdist.sigma[..., t], xdist.sigma[..., t] @ lgc.K[..., t].T)),
+                                              np.hstack((lgc.K[..., t] @ xdist.sigma[..., t], udist.sigma[..., t]))))
+            xudist.sigma[..., t] = 0.5 * (xudist.sigma[..., t] + xudist.sigma[..., t].T)
 
-                # online linearization effectively doing extended Kalman filtering
-                self.dyn.A[..., t], self.dyn.B[..., t],\
-                self.dyn.c[..., t], self.dyn.sigma[..., t] = self.dyn.finite_diff(xdist.mu[..., t], udist.mu[..., t])
+            # online linearization effectively doing extended Kalman filtering
+            self.dyn.A[..., t], self.dyn.B[..., t],\
+            self.dyn.c[..., t], self.dyn.sigma[..., t] = self.dyn.finite_diff(xdist.mu[..., t], udist.mu[..., t])
 
-                xdist.mu[..., t + 1] = np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])) @\
-                                       xudist.mu[..., t] + self.dyn.c[..., t]
-                xdist.sigma[..., t + 1] = self.dyn.sigma[..., t] + \
-                                          np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])) @ xudist.sigma[..., t] @\
-                                                     np.vstack((self.dyn.A[..., t].T, self.dyn.B[..., t].T))
-                xdist.sigma[..., t + 1] = 0.5 * (xdist.sigma[..., t + 1] + xdist.sigma[..., t + 1].T)
-        else:
-            xdist.mu, xdist.sigma,\
-            udist.mu, udist.sigma,\
-            xudist.mu, xudist.sigma = forward_pass(self.xdist.mu[..., 0], self.xdist.sigma[..., 0],
-                                                   self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
-                                                   lgc.K, lgc.kff, lgc.sigma,
-                                                   self.nb_xdim, self.nb_udim, self.nb_steps)
+            xdist.mu[..., t + 1] = np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])) @\
+                                   xudist.mu[..., t] + self.dyn.c[..., t]
+            xdist.sigma[..., t + 1] = self.dyn.sigma[..., t] + \
+                                      np.hstack((self.dyn.A[..., t], self.dyn.B[..., t])) @ xudist.sigma[..., t] @\
+                                                 np.vstack((self.dyn.A[..., t].T, self.dyn.B[..., t].T))
+            xdist.sigma[..., t + 1] = 0.5 * (xdist.sigma[..., t + 1] + xdist.sigma[..., t + 1].T)
+
+        return xdist, udist, xudist
+
+    def forward_pass(self, lgc):
+        xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
+        udist = Gaussian(self.nb_udim, self.nb_steps)
+        xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
+
+        xdist.mu, xdist.sigma,\
+        udist.mu, udist.sigma,\
+        xudist.mu, xudist.sigma = forward_pass(self.xdist.mu[..., 0], self.xdist.sigma[..., 0],
+                                               self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
+                                               lgc.K, lgc.kff, lgc.sigma,
+                                               self.nb_xdim, self.nb_udim, self.nb_steps)
         return xdist, udist, xudist
 
     def backward_pass(self, alpha, agcost):
@@ -210,7 +216,7 @@ class MBGPS:
 
     def run(self):
         # get linear system dynamics around mean traj.
-        self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl, kalman=True)
+        self.xdist, self.udist, self.xudist = self.extended_kalman(self.ctl)
 
         # get quadratic cost around mean traj.
         self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
