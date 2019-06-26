@@ -68,6 +68,9 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdx = jacobian(self.f, 0)
         self.dcdu = jacobian(self.f, 1)
 
+    def evalf(self, x, u, a):
+        return self.f(x, u, a)
+
     def finite_diff(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
@@ -108,12 +111,20 @@ class LinearDynamics:
 
 
 class AnalyticalLinearDynamics(LinearDynamics):
-    def __init__(self, f, nb_xdim, nb_udim, nb_steps):
+    def __init__(self, f_init, f_dyn, nb_xdim, nb_udim, nb_steps):
         super(AnalyticalLinearDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
 
-        self.f = f
+        self.i = f_init
+        self.f = f_dyn
+
         self.dfdx = jacobian(self.f, 0)
         self.dfdu = jacobian(self.f, 1)
+
+    def evali(self):
+        return self.i()
+
+    def evalf(self, x, u):
+        return self.f(x, u)
 
     def finite_diff(self, x, u):
         for t in range(self.nb_steps):
@@ -139,5 +150,5 @@ class LinearControl:
         self.K, self.kff = values
 
     def action(self, x, alpha, xref, uref, t):
-        dx = x - xref[:, t]
+        dx = x[..., t] - xref[:, t]
         return uref[:, t] + alpha * self.kff[..., t] + self.K[..., t] @ dx

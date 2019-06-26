@@ -63,7 +63,7 @@ class iLQR:
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
 
-        self.dyn = AnalyticalLinearDynamics(self.env_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
 
         # activation of cost function
@@ -81,18 +81,12 @@ class iLQR:
         state = np.zeros((self.nb_xdim, self.nb_steps + 1))
         action = np.zeros((self.nb_udim, self.nb_steps))
 
-        x, _ = self.env_init()
-        state[..., 0] = x
-
+        state[..., 0], _ = self.dyn.evali()
         for t in range(self.nb_steps):
             # apply action
-            u = ctl.action(x, alpha, self.xref, self.uref, t)
+            action[..., t] = ctl.action(state, alpha, self.xref, self.uref, t)
             # evolve dynamics
-            x = self.env_dyn(x, u)
-
-            state[..., t + 1] = x
-            action[..., t] = u
-
+            state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
         return state, action
 
     def backward_pass(self):
@@ -130,8 +124,8 @@ class iLQR:
     def objective(self, x, u):
         _return = 0.0
         for t in range(self.nb_steps):
-            _return += self.env_cost(x[..., t], u[..., t], self.activation[..., t])
-        _return += self.env_cost(x[..., -1], np.zeros((self.nb_udim,)), self.activation[..., -1])
+            _return += self.cost.evalf(x[..., t], u[..., t], self.activation[..., t])
+        _return += self.cost.evalf(x[..., -1], np.zeros((self.nb_udim,)), self.activation[..., -1])
 
         return _return
 
