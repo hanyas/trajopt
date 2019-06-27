@@ -119,49 +119,46 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
 
     int _diverge = 0;
 
-	for(int i = nb_steps; i>= 0; --i)
+    // last time step
+    V.slice(nb_steps) = Cxx.slice(nb_steps);
+    v.col(nb_steps) = cx.col(nb_steps);
+
+	for(int i = nb_steps - 1; i>= 0; --i)
 	{
-		if (i < nb_steps)
-		{
-			Qxx.slice(i) = Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i);
-            Quu.slice(i) = Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i);
-            Qux.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t();
+        Qxx.slice(i) = Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i);
+        Quu.slice(i) = Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i);
+        Qux.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t();
 
-            qu.col(i) = cu.col(i) + B.slice(i).t() * v.col(i+1);
-            qx.col(i) = cx.col(i) + A.slice(i).t() * v.col(i+1);
+        qu.col(i) = cu.col(i) + B.slice(i).t() * v.col(i+1);
+        qx.col(i) = cx.col(i) + A.slice(i).t() * v.col(i+1);
 
-            V_reg.slice(i+1) = V.slice(i+1);
-            if (reg==2)
-                V_reg.slice(i+1) += lmbda * eye(nb_xdim, nb_xdim);
+        V_reg.slice(i+1) = V.slice(i+1);
+        if (reg==2)
+            V_reg.slice(i+1) += lmbda * eye(nb_xdim, nb_xdim);
 
-            Qux_reg.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V_reg.slice(i+1) * B.slice(i)).t();
+        Qux_reg.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V_reg.slice(i+1) * B.slice(i)).t();
 
-            Quu_reg.slice(i) = Cuu.slice(i) + B.slice(i).t() * V_reg.slice(i+1) * B.slice(i);
-            if (reg==1)
-                Quu_reg.slice(i) += lmbda * eye(nb_udim, nb_udim);
+        Quu_reg.slice(i) = Cuu.slice(i) + B.slice(i).t() * V_reg.slice(i+1) * B.slice(i);
+        if (reg==1)
+            Quu_reg.slice(i) += lmbda * eye(nb_udim, nb_udim);
 
-            if (!(Quu_reg.slice(i)).is_sympd()) {
-                _diverge = i;
-                break;
-            }
+        if (!(Quu_reg.slice(i)).is_sympd()) {
+            _diverge = i;
+            break;
+        }
 
-            Quu_inv.slice(i) = inv(Quu_reg.slice(i));
-            K.slice(i) = - Quu_inv.slice(i) * Qux_reg.slice(i);
-            kff.col(i) = - Quu_inv.slice(i) * qu.col(i);
+        Quu_inv.slice(i) = inv(Quu_reg.slice(i));
+        K.slice(i) = - Quu_inv.slice(i) * Qux_reg.slice(i);
+        kff.col(i) = - Quu_inv.slice(i) * qu.col(i);
 
-            dV += join_vert(kff.col(i).t() * qu.col(i), 0.5 * kff.col(i).t() * Quu.slice(i) * kff.col(i));
+        dV += join_vert(kff.col(i).t() * qu.col(i), 0.5 * kff.col(i).t() * Quu.slice(i) * kff.col(i));
 
-            v.col(i) = qx.col(i) + K.slice(i).t() * Quu.slice(i) * kff.col(i) +
-                       K.slice(i).t() * qu.col(i) + Qux.slice(i).t() * kff.col(i);
+        v.col(i) = qx.col(i) + K.slice(i).t() * Quu.slice(i) * kff.col(i) +
+                   K.slice(i).t() * qu.col(i) + Qux.slice(i).t() * kff.col(i);
 
-            V.slice(i) = Qxx.slice(i) + K.slice(i).t() * Quu.slice(i) * K.slice(i) +
-                         K.slice(i).t() * Qux.slice(i) + Qux.slice(i).t() * K.slice(i);
-            V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
-		}
-		else {
-			V.slice(i) = Cxx.slice(i);
-            v.col(i) = cx.col(i);
-		}
+        V.slice(i) = Qxx.slice(i) + K.slice(i).t() * Quu.slice(i) * K.slice(i) +
+                     K.slice(i).t() * Qux.slice(i) + Qux.slice(i).t() * K.slice(i);
+        V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
 	}
 
     // transform outputs to numpy

@@ -99,7 +99,6 @@ double kl_divergence(array_tf _K, array_tf _kff, array_tf _sigma_ctl,
     double kl = 0.0;
 
     for(int i = 0; i < nb_steps; i++) {
-
         mat lprec_ctl = inv_sympd(lsigma_ctl.slice(i));
 
         mat diff_K = (lK.slice(i) - K.slice(i)).t() * lprec_ctl * (lK.slice(i) - K.slice(i));
@@ -156,28 +155,25 @@ py::tuple augment_cost(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     cube agCxu(nb_xdim, nb_udim, nb_steps + 1);
     vec agc0(nb_steps + 1);
 
-    for (int i = 0; i <= nb_steps; i++) {
+    for (int i = 0; i < nb_steps; i++) {
+        mat prec_ctl = inv_sympd(sigma_ctl.slice(i));
 
-        if(i < nb_steps) {
-            mat prec_ctl = inv_sympd(sigma_ctl.slice(i));
-
-            agCxx.slice(i) = Cxx.slice(i) - 0.5 * alpha * K.slice(i).t() * prec_ctl * K.slice(i);
-            agCuu.slice(i) = Cuu.slice(i) - 0.5 * alpha * prec_ctl;
-            agCxu.slice(i) = Cxu.slice(i) + 0.5 * alpha * K.slice(i).t() * prec_ctl;
-            agcx.col(i) = cx.col(i) - alpha * K.slice(i).t() * prec_ctl * kff.col(i);
-            agcu.col(i) = cu.col(i) + alpha * prec_ctl * kff.col(i);
-            agc0(i) = as_scalar(c0(i) - 0.5 * alpha * log( det(2. * datum::pi * sigma_ctl.slice(i)) )
-                       - 0.5 * alpha * kff.col(i).t() * prec_ctl * kff.col(i));
-        }
-        else {
-            agCxx.slice(i) = Cxx.slice(i);
-            agcx.col(i) = cx.col(i);
-            agCuu.slice(i) = Cuu.slice(i);
-            agcu.col(i) = cu.col(i);
-            agCxu.slice(i) = Cxu.slice(i);
-            agc0(i) = c0(i);
-        }
+        agCxx.slice(i) = Cxx.slice(i) - 0.5 * alpha * K.slice(i).t() * prec_ctl * K.slice(i);
+        agCuu.slice(i) = Cuu.slice(i) - 0.5 * alpha * prec_ctl;
+        agCxu.slice(i) = Cxu.slice(i) + 0.5 * alpha * K.slice(i).t() * prec_ctl;
+        agcx.col(i) = cx.col(i) - alpha * K.slice(i).t() * prec_ctl * kff.col(i);
+        agcu.col(i) = cu.col(i) + alpha * prec_ctl * kff.col(i);
+        agc0(i) = as_scalar(c0(i) - 0.5 * alpha * log( det(2. * datum::pi * sigma_ctl.slice(i)) )
+                   - 0.5 * alpha * kff.col(i).t() * prec_ctl * kff.col(i));
     }
+
+    // last time step
+    agCxx.slice(nb_steps) = Cxx.slice(nb_steps);
+    agcx.col(nb_steps) = cx.col(nb_steps);
+    agCuu.slice(nb_steps) = Cuu.slice(nb_steps);
+    agcu.col(nb_steps) = cu.col(nb_steps);
+    agCxu.slice(nb_steps) = Cxu.slice(nb_steps);
+    agc0(nb_steps) = c0(nb_steps);
 
     // transform outputs to numpy
     array_tf _agCxx = cube_to_array(agCxx);
@@ -308,47 +304,43 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     cube sigma_ctl(nb_udim, nb_udim, nb_steps);
     cube prec_ctl(nb_udim, nb_udim, nb_steps);
 
-	for(int i = nb_steps; i>= 0; --i)
+    // last time step
+    V.slice(nb_steps) = Cxx.slice(nb_steps);
+    v.col(nb_steps) = cx.col(nb_steps);
+    v0(nb_steps) = c0(nb_steps);
+    v0_softmax(nb_steps) = c0(nb_steps);
+
+	for(int i = nb_steps - 1; i>= 0; --i)
 	{
-		if (i < nb_steps)
-		{
-			Qxx.slice(i) = (Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i)) / alpha;
-            Quu.slice(i) = (Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i)) / alpha;
-            Qux.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t() / alpha;
+        Qxx.slice(i) = (Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i)) / alpha;
+        Quu.slice(i) = (Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i)) / alpha;
+        Qux.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t() / alpha;
 
-            qu.col(i) = (cu.col(i) + 2.0 * B.slice(i).t() * V.slice(i+1) * c.col(i) + B.slice(i).t() * v.col(i+1)) / alpha;
-            qx.col(i) = (cx.col(i) + 2.0 * A.slice(i).t() * V.slice(i+1) * c.col(i) + A.slice(i).t() * v.col(i+1)) / alpha;
-            q0_common(i) = as_scalar(c0(i) +  c.col(i).t() * V.slice(i+1) * c.col(i)
-                            + trace(V.slice(i+1) * sigma_dyn.slice(i)) + v.col(i+1).t() * c.col(i));
+        qu.col(i) = (cu.col(i) + 2.0 * B.slice(i).t() * V.slice(i+1) * c.col(i) + B.slice(i).t() * v.col(i+1)) / alpha;
+        qx.col(i) = (cx.col(i) + 2.0 * A.slice(i).t() * V.slice(i+1) * c.col(i) + A.slice(i).t() * v.col(i+1)) / alpha;
+        q0_common(i) = as_scalar(c0(i) +  c.col(i).t() * V.slice(i+1) * c.col(i)
+                        + trace(V.slice(i+1) * sigma_dyn.slice(i)) + v.col(i+1).t() * c.col(i));
 
-            q0(i) = (q0_common(i) + v0(i+1)) / alpha;
-            q0_softmax(i) = (q0_common(i) + v0_softmax(i+1)) / alpha;
+        q0(i) = (q0_common(i) + v0(i+1)) / alpha;
+        q0_softmax(i) = (q0_common(i) + v0_softmax(i+1)) / alpha;
 
-            Quu_inv.slice(i) = inv(Quu.slice(i));
-            K.slice(i) = - Quu_inv.slice(i) * Qux.slice(i);
-            kff.col(i) = - 0.5 * Quu_inv.slice(i) * qu.col(i);
+        Quu_inv.slice(i) = inv(Quu.slice(i));
+        K.slice(i) = - Quu_inv.slice(i) * Qux.slice(i);
+        kff.col(i) = - 0.5 * Quu_inv.slice(i) * qu.col(i);
 
-            sigma_ctl.slice(i) = - 0.5 * Quu_inv.slice(i);
-            sigma_ctl.slice(i) = 0.5 * (sigma_ctl.slice(i).t() + sigma_ctl.slice(i));
+        sigma_ctl.slice(i) = - 0.5 * Quu_inv.slice(i);
+        sigma_ctl.slice(i) = 0.5 * (sigma_ctl.slice(i).t() + sigma_ctl.slice(i));
 
-            prec_ctl.slice(i) = - (Quu.slice(i).t() + Quu.slice(i));
-            prec_ctl.slice(i) = 0.5 * (prec_ctl.slice(i).t() + prec_ctl.slice(i));
+        prec_ctl.slice(i) = - (Quu.slice(i).t() + Quu.slice(i));
+        prec_ctl.slice(i) = 0.5 * (prec_ctl.slice(i).t() + prec_ctl.slice(i));
 
-            V.slice(i) = (Qxx.slice(i) + Qux.slice(i).t() * K.slice(i)) * alpha;
-            V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
+        V.slice(i) = (Qxx.slice(i) + Qux.slice(i).t() * K.slice(i)) * alpha;
+        V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
 
-            v.col(i) = (qx.col(i) + 2. * Qux.slice(i).t() * kff.col(i)) * alpha;
-            v0(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * nb_udim));
-            v0_softmax(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0_softmax(i)
-                             + 0.5 * (nb_udim * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
-
-		}
-		else {
-			V.slice(i) = Cxx.slice(i);
-            v.col(i) = cx.col(i);
-            v0(i) = c0(i);
-            v0_softmax(i) = c0(i);
-		}
+        v.col(i) = (qx.col(i) + 2. * Qux.slice(i).t() * kff.col(i)) * alpha;
+        v0(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * nb_udim));
+        v0_softmax(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0_softmax(i)
+                         + 0.5 * (nb_udim * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
 	}
 
     // transform outputs to numpy
