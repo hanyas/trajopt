@@ -12,12 +12,12 @@ from trajopt.gps import MBGPS
 
 # lqr task
 env = gym.make('LQR-TO-v0')
-env._max_episode_steps = 100
+env._max_episode_steps = 50
 
-alg = MBGPS(env, nb_steps=100,
-            kl_bound=10.,
-            init_ctl_sigma=1.,
-            activation='last')
+alg = MBGPS(env, nb_steps=50,
+            kl_bound=100.,
+            init_ctl_sigma=100.,
+            activation='all')
 
 # run gps
 for _ in range(1):
