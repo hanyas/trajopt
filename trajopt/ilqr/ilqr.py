@@ -83,10 +83,9 @@ class iLQR:
 
         state[..., 0], _ = self.dyn.evali()
         for t in range(self.nb_steps):
-            # apply action
             action[..., t] = ctl.action(state, alpha, self.xref, self.uref, t)
-            # evolve dynamics
             state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
+
         return state, action
 
     def backward_pass(self):
@@ -143,7 +142,7 @@ class iLQR:
             else:
                 print("Initial trajectory diverges")
 
-        _trace.append(self.objective)
+        _trace.append(self.last_objective)
 
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
@@ -211,7 +210,7 @@ class iLQR:
 
                 self.ctl = lc
 
-                _trace.append(self.objective)
+                _trace.append(self.last_objective)
 
                 # terminate if reached objective tolerance
                 if _dreturn < self.tolfun:
