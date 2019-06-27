@@ -23,7 +23,7 @@ class Pendulum(gym.Env):
         self._uw = np.array([1.e-3])
 
         self._xmax = np.array([np.inf, 25.0])
-        self._umax = 5.0
+        self._umax = 25.0
 
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
