@@ -12,17 +12,17 @@ class LQR(gym.Env):
         self.nb_udim = 1
 
         self._dt = 0.01
-        self._g = np.array([1., 0])
+        self._g = np.array([0., 0])
 
         # stochastic dynamics
-        self._A = np.array([[1., 1.e-2], [0., 1.]])
-        self._B = np.array([[0.], [1.]])
+        self._A = np.array([[1.1, 0.], [0.1, 1.1]])
+        self._B = np.array([[0.1], [0.]])
         self._c = np.zeros((2, ))
 
-        self._sigma = 1.e-4 * np.eye(2)
+        self._sigma = 1.e-8 * np.eye(2)
 
-        self._xw = np.array([1.e1, 1.e-1])
-        self._uw = np.array([1.e-3])
+        self._xw = np.array([1.e0, 1.e0])
+        self._uw = np.array([0.1])
 
         self._xmax = np.array([np.inf, np.inf])
         self._umax = np.inf
@@ -54,7 +54,7 @@ class LQR(gym.Env):
 
     def init(self):
         # mu, sigma
-        return np.array([0., 0.]), 1.e-4 * np.eye(2)
+        return np.array([5., 5.]), 1.e-4 * np.eye(2)
 
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
