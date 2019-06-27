@@ -108,10 +108,10 @@ class AnalyticalQuadraticCost(QuadraticCost):
             _in = tuple([x[..., t], _u[..., t], a[t]])
             self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
             self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
-            self.Cxu[..., t] = 0.5 * self.dcdxu(*_in)
+            self.Cxu[..., t] = self.dcdxu(*_in)
 
-            self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - 0.5 * self.dcdxu(*_in) @ _u[..., t]
-            self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - 0.5 * x[..., t].T @ self.dcdxu(*_in)
+            self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - self.dcdxu(*_in) @ _u[..., t]
+            self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - x[..., t].T @ self.dcdxu(*_in)
 
             # residual of taylor expansion
             self.c0[..., t] = self.f(*_in) -\

@@ -80,9 +80,8 @@ class AnalyticalQuadraticCost(QuadraticCost):
             self.Cxx[..., t] = self.dcdxx(*_in)
             self.Cuu[..., t] = self.dcduu(*_in)
             self.Cxu[..., t] = self.dcdxu(*_in)
-
-            self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - self.dcdxu(*_in) @ _u[..., t]
-            self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - x[..., t].T @ self.dcdxu(*_in)
+            self.cx[..., t] = self.dcdx(*_in)
+            self.cu[..., t] = self.dcdu(*_in)
 
 
 class LinearDynamics:
