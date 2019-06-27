@@ -16,15 +16,18 @@ class LightDark(gym.Env):
 
     def __init__(self):
         self.nb_xdim = 2
+        self.nb_bdim = 2
         self.nb_udim = 2
         self.nb_zdim = 2
 
-        self._dt = 0.05
+        self._dt = 1.
         self._g = np.array([0., 0.])
 
-        self._xw = - np.array([0.5, 0.5])
-        self._uw = - np.array([0.5, 0.5])
-        self._vw = - np.array([200., 200.])
+        # belief cost weights
+        self._bw = np.array([0.5, 0.5])
+        self._vw = np.array([200., 0.])
+        # action cost weights
+        self._uw = np.array([0.5, 0.5])
 
         self._xmax = np.array([7., 4.])
         self._zmax = np.array([7., 4.])
@@ -63,10 +66,11 @@ class LightDark(gym.Env):
         return self._g
 
     def init(self):
-        self.state = np.array([2.5, 0.])
-        _z0 = np.array([2., 2.])
-        _sigma_z0 = 5. * np.eye(self.nb_zdim)
-        return _z0, _sigma_z0
+        # initial belief
+        _b0 = np.array([2., 2.])
+        _sigma_b0 = np.array([[5., 0.],
+                              [0., 1.e-8]])
+        return _b0, _sigma_b0
 
     def dynamics(self, x, u):
         return x + self._dt * u
@@ -77,17 +81,18 @@ class LightDark(gym.Env):
     def observe(self, x):
         return x
 
-    def obs_noise(self, x=None, u=None):
-        _sigma = 1e-2 * np.eye(self.nb_zdim)
-        _sigma[0, 0] += 0.5 * (5. - x[0])**2
-        _sigma[1, 1] += 0.5 * (2. - x[1])**2
+    def obs_noise(self, x=None):
+        _sigma = 1e-4 * np.eye(self.nb_zdim)
+        _sigma += np.array([[0.5 * (5. - x[0])**2, 0.],
+                           [0., 0.]])
         return _sigma
 
-    def cost(self, z, sigma, u, a):
+    # cost defined over belief
+    def cost(self, mu_b, sigma_b, u, a):
         if a:
-            return (z - self._g).T @ np.diag(self._xw) @ (z - self._g) +\
-                    np.trace(np.diag(self._vw) @ sigma) +\
-                    u.T @ np.diag(self._uw) @ u
+            return (mu_b - self._g).T @ np.diag(self._bw) @ (mu_b - self._g) +\
+                   u.T @ np.diag(self._uw) @ u +\
+                   np.trace(np.diag(self._vw) @ sigma_b)
         else:
             return u.T @ np.diag(self._uw) @ u
 
@@ -97,20 +102,20 @@ class LightDark(gym.Env):
 
     def step(self, u):
         # state-action dependent dynamics noise
-        _sigma_x = self.dyn_noise(self.state, u)
+        _sigma_dyn = self.dyn_noise(self.state, u)
         # evolve deterministic dynamics
         self.state = self.dynamics(self.state, u)
-        # add noise
-        self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma_x)
+        # add dynamics noise
+        self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma_dyn)
 
         # state-action dependent dynamics noise
-        _sigma_z = self.obs_noise(self.state, u)
+        _sigma_obs = self.obs_noise(self.state)
         # observe state
         _z = self.observe(self.state)
-        # add noise
-        _z = self.np_random.multivariate_normal(mean=_z, cov=_sigma_z)
+        # add observation noise
+        _z = self.np_random.multivariate_normal(mean=_z, cov=_sigma_obs)
         return _z, [], False, {}
 
     def reset(self):
-        _z0, _sigma_z0 = self.init()
-        return _z0, _sigma_z0
+        self.state = np.array([2.5, 0.])
+        return self.observe(self.state)
