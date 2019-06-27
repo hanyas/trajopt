@@ -66,7 +66,8 @@ setup(
     description='A toolbox for trajectory optimization',
     long_description='',
     ext_modules=[CMakeExtension('gps', './trajopt/gps/'),
-                 CMakeExtension('ilqr', './trajopt/ilqr/')],
+                 CMakeExtension('ilqr', './trajopt/ilqr/'),
+                 CMakeExtension('bspilqr', './trajopt/bspilqr/')],
     cmdclass=dict(build_ext=CMakeBuild),
     zip_safe=False,
 )

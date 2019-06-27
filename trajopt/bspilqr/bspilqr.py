@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# @Filename: ilqr
+# @Date: 2019-06-23-14-00
+# @Author: Hany Abdulsamad
+# @Contact: hany@robot-learning.de
+
+import autograd.numpy as np
+
+from trajopt.bspilqr.objects import Gaussian
+from trajopt.bspilqr.objects import AnalyticalLinearBeliefDynamics, AnalyticalQuadraticCost
+from trajopt.bspilqr.objects import QuadraticBeliefValue
+from trajopt.bspilqr.objects import LinearControl
+
+from trajopt.bspilqr.core import backward_pass
+
+
+class BSPiLQR:
+
+    def __init__(self, env, nb_steps,
+                 alphas=np.power(10., np.linspace(0, -3, 11)),
+                 lmbda=1., dlmbda=1.,
+                 min_lmbda=1.e-6, max_lmbda=1.e3, mult_lmbda=1.6,
+                 tolfun=1.e-7, tolgrad=1.e-4, min_imp=0., reg=1,
+                 activation='last'):
+
+        self.env = env
+
+        self.env_dyn = self.env.unwrapped.dynamics
+        self.env_obs = self.env.unwrapped.observe
+
+        self.env_dyn_noise = self.env.unwrapped.dyn_noise
+        self.env_obs_noise = self.env.unwrapped.obs_noise
+
+        self.env_cost = self.env.unwrapped.cost
+        self.env_init = self.env.unwrapped.init
+
+        self.ulim = self.env.action_space.high
+
+        self.nb_bdim = self.env.unwrapped.state_space.shape[0]
+        self.nb_zdim = self.env.unwrapped.observation_space.shape[0]
+        self.nb_udim = self.env.action_space.shape[0]
+        self.nb_steps = nb_steps
+
+        # backtracking
+        self.alphas = alphas
+        self.lmbda = lmbda
+        self.dlmbda = dlmbda
+        self.min_lmbda = min_lmbda
+        self.max_lmbda = max_lmbda
+        self.mult_lmbda = mult_lmbda
+
+        # regularization type
+        self.reg = reg
+
+        # minimum relative improvement
+        self.min_imp = min_imp
+
+        # stopping criterion
+        self.tolfun = tolfun
+        self.tolgrad = tolgrad
+
+        # reference belief trajectory
+        self.bref = Gaussian(self.nb_bdim, self.nb_steps + 1)
+        self.bref.mu[..., 0], self.bref.sigma[..., 0] = self.env_init()
+
+        self.uref = np.zeros((self.nb_udim, self.nb_steps))
+
+        self.vfunc = QuadraticBeliefValue(self.nb_bdim, self.nb_steps + 1)
+
+        self.dyn = AnalyticalLinearBeliefDynamics(self.env_init, self.env_dyn, self.env_obs,
+                                                  self.env_dyn_noise, self.env_obs_noise,
+                                                  self.nb_bdim, self.nb_zdim, self.nb_udim, self.nb_steps)
+
+        self.ctl = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
+
+        # activation of reward function
+        if activation == 'all':
+            self.activation = np.ones((self.nb_steps + 1,), dtype=np.int64)
+        else:
+            self.activation = np.zeros((self.nb_steps + 1, ), dtype=np.int64)
+            self.activation[-1] = 1
+
+        self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_bdim, self.nb_udim, self.nb_steps + 1)
+
+        self.last_objective = - np.inf
+
+    def forward_pass(self, ctl, alpha):
+        belief = Gaussian(self.nb_bdim, self.nb_steps + 1)
+        action = np.zeros((self.nb_udim, self.nb_steps))
+
+        belief.mu[..., 0], belief.sigma[..., 0] = self.dyn.evali()
+        for t in range(self.nb_steps):
+            action[..., t] = ctl.action(belief, alpha, self.bref.mu, self.uref, t)
+            belief.mu[..., t + 1], belief.sigma[..., t + 1] = self.dyn.forward(belief, action, t)
+
+        return belief, action
+
+    def backward_pass(self):
+        lc = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
+        bvalue = QuadraticBeliefValue(self.nb_bdim, self.nb_steps + 1)
+
+        bvalue.S, bvalue.s, bvalue.tau,\
+        dS, lc.K, lc.kff, diverge = backward_pass(self.cost.Q, self.cost.q,
+                                                  self.cost.R, self.cost.r,
+                                                  self.cost.P, self.cost.p,
+                                                  self.dyn.F, self.dyn.G,
+                                                  self.dyn.T, self.dyn.U,
+                                                  self.dyn.V, self.dyn.X,
+                                                  self.dyn.Y, self.dyn.Z,
+                                                  self.lmbda, self.reg,
+                                                  self.nb_bdim, self.nb_udim, self.nb_steps)
+        return lc, bvalue, dS, diverge
+
+    def plot(self):
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+
+        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+        for k in range(self.nb_bdim):
+            plt.subplot(self.nb_bdim + self.nb_udim, 1, k + 1)
+            plt.plot(t, self.bref.mu[k, :], '-b')
+            lb = self.bref.mu[k, :] - 2. * np.sqrt(self.bref.sigma[k, k, :])
+            ub = self.bref.mu[k, :] + 2. * np.sqrt(self.bref.sigma[k, k, :])
+            plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
+
+        t = np.linspace(0, self.nb_steps, self.nb_steps)
+        for k in range(self.nb_udim):
+            plt.subplot(self.nb_bdim + self.nb_udim, 1, self.nb_bdim + k + 1)
+            plt.plot(t, self.uref[k, :], '-g')
+
+        plt.show()
+
+    def objective(self, b, u):
+        _return = 0.0
+        for t in range(self.nb_steps):
+            _return += self.env_cost(b.mu[..., t], b.sigma[..., t], u[..., t], self.activation[..., t])
+        _return += self.env_cost(b.mu[..., -1], b.sigma[..., -1], np.zeros((self.nb_udim,)), self.activation[..., -1])
+
+        return _return
+
+    def run(self, nb_iter=250):
+        _trace = []
+
+        # init trajectory
+        for alpha in self.alphas:
+            _belief, _action = self.forward_pass(self.ctl, alpha)
+            if np.all(_belief.mu < 1.e8):
+                self.bref = _belief
+                self.uref = _action
+                self.last_objective = self.objective(self.bref, self.uref)
+                break
+            else:
+                print("Initial trajectory diverges")
+
+        _trace.append(self.last_objective)
+
+        for _ in range(nb_iter):
+            # get linear system dynamics around ref traj.
+            self.dyn.finite_diff(self.bref, self.uref)
+
+            # get quadratic cost around ref traj.
+            self.cost.finite_diff(self.bref, self.uref, self.activation)
+
+            bvalue = None
+            lc, dvalue = None, None
+            # execute a backward pass
+            backpass_done = False
+            while not backpass_done:
+                lc, bvalue, dvalue, diverge = self.backward_pass()
+                if np.any(diverge):
+                    # increase lmbda
+                    self.dlmbda = np.maximum(self.dlmbda * self.mult_lmbda, self.mult_lmbda)
+                    self.lmbda = np.maximum(self.lmbda * self.dlmbda, self.min_lmbda)
+                    if self.lmbda > self.max_lmbda:
+                        break
+                    else:
+                        continue
+                else:
+                    backpass_done = True
+
+            # terminate if gradient too small
+            _g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref) + 1.), axis=1))
+            if _g_norm < self.tolgrad and self.lmbda < 1.e-5:
+                self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
+                self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
+                break
+
+            _belief, _action = None, None
+            _return, _dreturn = None, None
+            # execute a forward pass
+            fwdpass_done = False
+            if backpass_done:
+                for alpha in self.alphas:
+                    # apply on actual system
+                    _belief, _action = self.forward_pass(ctl=lc, alpha=alpha)
+
+                    # summed mean return
+                    _return = self.objective(_belief, _action)
+
+                    # check return improvement
+                    _dreturn = self.last_objective - _return
+                    _expected = - 1. * alpha * (dvalue[0] + alpha * dvalue[1])
+                    _imp = _dreturn / _expected
+                    if _imp > self.min_imp:
+                        fwdpass_done = True
+                        break
+
+            # accept or reject
+            if fwdpass_done:
+                # decrease lmbda
+                self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
+                self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
+
+                self.bref = _belief
+                self.uref = _action
+                self.last_objective = _return
+
+                self.vfunc = bvalue
+
+                self.ctl = lc
+
+                _trace.append(self.last_objective)
+
+                # terminate if reached objective tolerance
+                if _dreturn < self.tolfun:
+                    break
+            else:
+                # increase lmbda
+                self.dlmbda = np.maximum(self.dlmbda * self.mult_lmbda, self.mult_lmbda)
+                self.lmbda = np.maximum(self.lmbda * self.dlmbda, self.min_lmbda)
+                if self.lmbda > self.max_lmbda:
+                    break
+                else:
+                    continue
+
+        return _trace
