@@ -29,3 +29,9 @@ register(
     entry_point='trajopt.envs:LightDark',
     max_episode_steps=1000,
 )
+
+register(
+    id='Car-TO-v0',
+    entry_point='trajopt.envs:Car',
+    max_episode_steps=1000,
+)
