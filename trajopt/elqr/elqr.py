@@ -73,7 +73,8 @@ class eLQR:
 
     def forward_lqr(self):
         for t in range(self.nb_steps):
-            _state = - np.linalg.inv(self.gocost.V[..., t] + self.comecost.V[..., t]) @\
+            _state = - np.linalg.inv(self.gocost.V[..., t] +
+                                     self.comecost.V[..., t] + 1e-16 * np.eye(self.nb_xdim)) @\
                      (self.gocost.v[..., t] + self.comecost.v[..., t])
 
             _action = self.ctl.action(_state, t)
@@ -123,14 +124,18 @@ class eLQR:
         self.gocost.v0[..., -1] = _c0
 
         for t in range(self.nb_steps - 1, -1, -1):
-            _state_n = - np.linalg.inv(self.gocost.V[..., t + 1] + self.comecost.V[..., t + 1]) @\
+            _state_n = - np.linalg.inv(self.gocost.V[..., t + 1] + self.comecost.V[..., t + 1] +
+                                       1e-16 * np.eye(self.nb_xdim)) @\
                        (self.gocost.v[..., t + 1] + self.comecost.v[..., t + 1])
 
             _action = self.ictl.action(_state_n, t)
 
-            _state = self.idyn.evalf(_state_n, _action)
+            _state = self.idyn.evalf_inv(_state_n, _action)
             # linearize discrete dynamics
             _A, _B, _c = self.dyn.finite_diff(_state, _action)
+
+            # quadratize cost
+            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.finite_diff(_state, _action, self.activation[..., t])
 
             # backward value
             _Qxx = _Cxx + _A.T @ self.gocost.V[..., t + 1] @ _A
@@ -180,7 +185,7 @@ class eLQR:
 
         return _return
 
-    def run(self, nb_iter=10):
+    def run(self):
         # forward lqr
         self.forward_lqr()
 
