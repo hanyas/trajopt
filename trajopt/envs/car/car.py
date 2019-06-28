@@ -21,7 +21,7 @@ class Car(gym.Env):
         self.nb_zdim = 2
 
         self._dt = 0.5
-        self._g = np.array([2., 1., 0., 0.])
+        self._g = np.array([0., 0., 0., 0.])
 
         # car length
         self._l = 0.1
@@ -34,7 +34,7 @@ class Car(gym.Env):
 
         self._xmax = np.array([np.inf, np.inf, np.inf, np.inf])
         self._zmax = np.array([np.inf, np.inf, np.inf, np.inf])
-        self._umax =  np.array([np.inf, np.inf])
+        self._umax = np.array([np.inf, np.inf])
 
         self._state_space = spaces.Box(low=-self._xmax,
                                       high=self._xmax)
@@ -70,7 +70,7 @@ class Car(gym.Env):
 
     def init(self):
         # initial belief
-        _b0 = np.array([3., 1., 0., 0.])
+        _b0 = np.array([2., 2., 0., 0.])
         _sigma_b0 = 1. * np.eye(self.nb_bdim)
         return _b0, _sigma_b0
 
@@ -83,15 +83,15 @@ class Car(gym.Env):
         return xn
 
     def dyn_noise(self, x=None, u=None):
-        return 1.e-8 * np.eye(self.nb_xdim)
+        return 1.e-4 * np.eye(self.nb_xdim)
 
     def observe(self, x):
         return np.array([x[0], x[1]])
 
     def obs_noise(self, x=None):
-        _sigma = 1e-4 * np.eye(self.nb_zdim)
+        _sigma = 1.e-4 * np.eye(self.nb_zdim)
         _sigma += np.array([[0.5 * (5. - x[0])**2, 0.],
-                           [0., 0.]])
+                            [0., 0.]])
         return _sigma
 
     # cost defined over belief
@@ -123,5 +123,5 @@ class Car(gym.Env):
         return _z, [], False, {}
 
     def reset(self):
-        self.state = np.array([2., 4., 0., 0.])
+        self.state = np.array([0., 4., 0., 0.])
         return self.observe(self.state)
