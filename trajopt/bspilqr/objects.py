@@ -6,7 +6,8 @@
 # @Contact: hany@robot-learning.de
 
 import autograd.numpy as np
-from autograd import jacobian, hessian
+from autograd import jacobian, hessian, elementwise_grad
+from autograd.misc import flatten
 
 
 class Gaussian:
@@ -159,20 +160,21 @@ class AnalyticalLinearBeliefDynamics(LinearBeliefDynamics):
         self.dfdx = jacobian(self.f, 0)
         self.dhdx = jacobian(self.h, 0)
 
-        self.fm = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[0]
-        self.W = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[1]
-        self.phi = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[2]
-
-        self.fF = jacobian(self.fm, 0)
-        self.fG = jacobian(self.fm, 2)
-
-        self.fT = jacobian(self.phi, 0)
-        self.fU = jacobian(self.phi, 1)
-        self.fV = jacobian(self.phi, 2)
-
-        self.fX = jacobian(self.W, 0)
-        self.fY = jacobian(self.W, 1)
-        self.fZ = jacobian(self.W, 2)
+        # # legacy
+        # self.fm = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[0]
+        # self.W = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[1]
+        # self.phi = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[2]
+        #
+        # self.fF = jacobian(self.fm, 0)
+        # self.fG = jacobian(self.fm, 2)
+        #
+        # self.fX = jacobian(self.W, 0)
+        # self.fY = jacobian(self.W, 1)
+        # self.fZ = jacobian(self.W, 2)
+        #
+        # self.fT = jacobian(self.phi, 0)
+        # self.fU = jacobian(self.phi, 1)
+        # self.fV = jacobian(self.phi, 2)
 
     def evali(self):
         return self.i()
@@ -206,31 +208,52 @@ class AnalyticalLinearBeliefDynamics(LinearBeliefDynamics):
 
         return _f, _W, _phi
 
+    @staticmethod
+    def _elementwise_jacobian(func, x):
+        return np.stack([elementwise_grad(lambda xx: func(xx)[:, j])(x) for j in range(func(x).shape[-1])], axis=1)
+
+    def elementwise_jacobian(cls, func):
+        return lambda xx: cls._elementwise_jacobian(func, xx)
+
+    def flatten_ekf(self, mu_b, sigma_b, u):
+        _ex, unflatten = flatten(tuple([mu_b, sigma_b, u]))
+        _func = lambda _x: flatten(self.ekf(*unflatten(_x)))[0]
+        return _func, unflatten, _ex
+
     def finite_diff(self, b, u):
         for t in range(self.nb_steps):
-            _u = u[..., t]
-            _mu_b, _sigma_b = b.mu[..., t], b.sigma[..., t]
+            _in = tuple([b.mu[..., t], b.sigma[..., t], u[..., t]])
 
-            self.F[..., t] = self.fF(_mu_b, _sigma_b, _u)
-            self.G[..., t] = self.fG(_mu_b, _sigma_b, _u)
+            _in_flat, _unflatten = flatten(_in)
 
-            self.T[..., t] = np.reshape(self.fT(_mu_b, _sigma_b, _u),
-                            (self.nb_bdim * self.nb_bdim, self.nb_bdim), order='F')
+            def _ekf_flat(_in_flat):
+                return flatten(self.ekf(*_unflatten(_in_flat)))[0]
 
-            self.U[..., t] = np.reshape(self.fU(_mu_b, _sigma_b, _u),
-                            (self.nb_bdim * self.nb_bdim, self.nb_bdim * self.nb_bdim), order='F')
+            _ekf_jac = jacobian(_ekf_flat)
 
-            self.V[..., t] = np.reshape(self.fV(_mu_b, _sigma_b, _u),
-                            (self.nb_bdim * self.nb_bdim, self.nb_udim), order='F')
+            _grads = _ekf_jac(_in_flat)
+            self.F[..., t] = _grads[:self.nb_bdim, :self.nb_bdim]
+            self.G[..., t] = _grads[:self.nb_bdim, -self.nb_udim:]
 
-            self.X[..., t] = np.reshape(self.fX(_mu_b, _sigma_b, _u),
-                            (self.nb_bdim * self.nb_bdim, self.nb_bdim), order='F')
+            self.X[..., t] = _grads[self.nb_bdim:self.nb_bdim + self.nb_bdim * self.nb_bdim, :self.nb_bdim]
+            self.Y[..., t] = _grads[self.nb_bdim:self.nb_bdim + self.nb_bdim * self.nb_bdim, self.nb_bdim:self.nb_bdim + self.nb_bdim * self.nb_bdim]
+            self.Z[..., t] = _grads[self.nb_bdim:self.nb_bdim + self.nb_bdim * self.nb_bdim, -self.nb_udim:]
 
-            self.Y[..., t] = np.reshape(self.fY(_mu_b, _sigma_b, _u),
-                            (self.nb_bdim * self.nb_bdim, self.nb_bdim * self.nb_bdim), order='F')
+            self.T[..., t] = _grads[self.nb_bdim + self.nb_bdim * self.nb_bdim:, :self.nb_bdim]
+            self.U[..., t] = _grads[self.nb_bdim + self.nb_bdim * self.nb_bdim:, self.nb_bdim:self.nb_bdim + self.nb_bdim * self.nb_bdim]
+            self.V[..., t] = _grads[self.nb_bdim + self.nb_bdim * self.nb_bdim:, -self.nb_udim:]
 
-            self.Z[..., t] = np.reshape(self.fZ(_mu_b, _sigma_b, _u),
-                            (self.nb_bdim * self.nb_bdim, self.nb_udim), order='F')
+            # # legacy
+            # self.F[..., t] = self.fF(_mu_b, _sigma_b, _u)
+            # self.G[..., t] = self.fG(_mu_b, _sigma_b, _u)
+
+            # self.X[..., t] = np.reshape(self.fX(_mu_b, _sigma_b, _u), (self.nb_bdim * self.nb_bdim, self.nb_bdim), order='F')
+            # self.Y[..., t] = np.reshape(self.fY(_mu_b, _sigma_b, _u), (self.nb_bdim * self.nb_bdim, self.nb_bdim * self.nb_bdim), order='F')
+            # self.Z[..., t] = np.reshape(self.fZ(_mu_b, _sigma_b, _u), (self.nb_bdim * self.nb_bdim, self.nb_udim), order='F')
+
+            # self.T[..., t] = np.reshape(self.fT(_mu_b, _sigma_b, _u), (self.nb_bdim * self.nb_bdim, self.nb_bdim), order='F')
+            # self.U[..., t] = np.reshape(self.fU(_mu_b, _sigma_b, _u), (self.nb_bdim * self.nb_bdim, self.nb_bdim * self.nb_bdim), order='F')
+            # self.V[..., t] = np.reshape(self.fV(_mu_b, _sigma_b, _u), (self.nb_bdim * self.nb_bdim, self.nb_udim), order='F')
 
     def forward(self, b, u, t):
         _u = u[..., t]

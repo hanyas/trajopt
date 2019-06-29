@@ -16,7 +16,7 @@ env._max_episode_steps = 25
 alg = BSPiLQR(env, nb_steps=25, activation='last')
 
 # run belief-space ilqr
-trace = alg.run()
+trace = alg.run(nb_iter=5)
 
 # plot forward pass
 alg.plot()
