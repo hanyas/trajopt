@@ -114,10 +114,6 @@ class AnalyticalLinearDynamics(LinearDynamics):
     def evalf(self, x, u):
         return self.f(x, u)
 
-    def evalf_inv(self, x, u):
-        _A, _B, _c = self.inv_finite_diff(x, u)
-        return _A @ x + _B @ u + _c
-
     def finite_diff(self, x, u):
         _A = self.dfdx(x, u)
         _B = self.dfdu(x, u)
@@ -125,19 +121,6 @@ class AnalyticalLinearDynamics(LinearDynamics):
         _c = self.evalf(x, u) - _A @ x - _B @ u
 
         return _A, _B, _c
-
-    def inv_finite_diff(self, x, u):
-        _A = self.dfdx(x, u)
-        _B = self.dfdu(x, u)
-        # residual of taylor expansion
-        _c = self.evalf(x, u) - _A @ x - _B @ u
-
-        # inverse of the linearized model
-        _Ai = np.linalg.inv(_A)
-        _Bi = - np.linalg.inv(_A) @ _B
-        _ci = - np.linalg.inv(_A) @ _c
-
-        return _Ai, _Bi, _ci
 
 class LinearControl:
     def __init__(self, nb_xdim, nb_udim, nb_steps):
