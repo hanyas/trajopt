@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# @Filename: lqr.py
-# @Date: 2019-06-28-17-30
+# @Filename: pendulum.py
+# @Date: 2019-06-29-14-43
 # @Author: Hany Abdulsamad
 # @Contact: hany@robot-learning.de
 
@@ -9,11 +9,11 @@
 import gym
 from trajopt.elqr import eLQR
 
-# lqr task
-env = gym.make('LQR-TO-v0')
+# pendulum task
+env = gym.make('Pendulum-TO-v0')
 env._max_episode_steps = 100
 
-alg = eLQR(env, nb_steps=100, activation='all')
+alg = eLQR(env, nb_steps=100, activation='last')
 
 # run eLQR
 trace = alg.run()
