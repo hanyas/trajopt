@@ -142,7 +142,6 @@ class BSPiLQR:
 
     def run(self, nb_iter=250):
         _trace = []
-
         # init trajectory
         for alpha in self.alphas:
             _belief, _action = self.forward_pass(self.ctl, alpha)

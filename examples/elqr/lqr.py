@@ -27,4 +27,3 @@ import matplotlib.pyplot as plt
 plt.figure()
 plt.plot(trace)
 plt.show()
-
