@@ -11,16 +11,16 @@ from trajopt.gps import MBGPS
 
 
 # pendulum env
-env = gym.make('Pendulum-TO-v0')
+env = gym.make('Pendulum-TO-v1')
 env._max_episode_steps = 150
 
 alg = MBGPS(env, nb_steps=150,
-            kl_bound=25.,
-            init_ctl_sigma=2.0,
+            kl_bound=10.,
+            init_ctl_sigma=5.0,
             activation='last')
 
 # run gps
-trace = alg.run()
+trace = alg.run(nb_iter=10)
 
 # plot dists
 alg.plot()

@@ -73,6 +73,7 @@ class BSPiLQR:
                                                   self.nb_bdim, self.nb_zdim, self.nb_udim, self.nb_steps)
 
         self.ctl = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
+        self.ctl.kff = np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of reward function
         if activation == 'all':

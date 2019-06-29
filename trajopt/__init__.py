@@ -13,6 +13,12 @@ register(
 )
 
 register(
+    id='Pendulum-TO-v1',
+    entry_point='trajopt.envs:TrigPendulum',
+    max_episode_steps=1000,
+)
+
+register(
     id='Cartpole-TO-v0',
     entry_point='trajopt.envs:Cartpole',
     max_episode_steps=1000,

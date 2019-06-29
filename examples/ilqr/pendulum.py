@@ -10,14 +10,14 @@ import gym
 from trajopt.ilqr import iLQR
 
 # pendulum env
-env = gym.make('Pendulum-TO-v0')
+env = gym.make('Pendulum-TO-v1')
 env._max_episode_steps = 150
 
 alg = iLQR(env, nb_steps=150,
            activation='last')
 
 # run iLQR
-trace = alg.run()
+trace = alg.run(nb_iter=100)
 
 # plot forward pass
 alg.plot()

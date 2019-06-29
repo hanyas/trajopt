@@ -48,7 +48,10 @@ class eLQR:
         self.idyn = AnalyticalLinearDynamics(self.env_init, self.env_inv_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
 
         self.ctl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.ctl.kff = np.random.randn(self.nb_udim, self.nb_steps)
+
         self.ictl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.ictl.kff = np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of cost function
         if activation == 'all':

@@ -55,6 +55,7 @@ class MBGPS:
         self.dyn = AnalyticalLinearGaussianDynamics(self.env_init, self.env_dyn, self.env_noise,
                                                     self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
+        self.ctl.kff = np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of cost function
         if activation == 'all':
