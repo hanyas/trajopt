@@ -196,39 +196,44 @@ class MBGPS:
 
         return _return
 
-    def run(self):
-        # get linear system dynamics around mean traj.
-        self.xdist, self.udist = self.extended_kalman(self.ctl)
+    def run(self, nb_iter=10):
+        _trace = []
+        for _ in range(nb_iter):
+            # get linear system dynamics around mean traj.
+            self.xdist, self.udist = self.extended_kalman(self.ctl)
 
-        # get quadratic cost around mean traj.
-        self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
+            # mean objective under current dists.
+            _trace.append(self.objective(self.xdist.mu, self.udist.mu))
 
-        # mean objective under current dists.
-        ret = self.objective(self.xdist.mu, self.udist.mu)
+            # get quadratic cost around mean traj.
+            self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
 
-        # use scipy optimizer
-        res = sc.optimize.minimize(self.dual, np.array([-1.e2]),
-                                   method='L-BFGS-B',
-                                   jac=True,
-                                   bounds=((-1e8, -1e-8), ),
-                                   options={'disp': False, 'maxiter': 1000,
-                                            'ftol': 1e-10})
-        self.alpha = res.x
+            # use scipy optimizer
+            res = sc.optimize.minimize(self.dual, np.array([-1.e2]),
+                                       method='L-BFGS-B',
+                                       jac=True,
+                                       bounds=((-1e8, -1e-8), ),
+                                       options={'disp': False, 'maxiter': 1000,
+                                                'ftol': 1e-10})
+            self.alpha = res.x
 
-        # re-compute after opt.
-        agcost = self.augment_cost(self.alpha)
-        lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agcost)
-        xdist, udist, xudist = self.forward_pass(lgc)
+            # re-compute after opt.
+            agcost = self.augment_cost(self.alpha)
+            lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agcost)
+            xdist, udist, xudist = self.forward_pass(lgc)
 
-        # check kl constraint
-        kl = self.kldiv(lgc, xdist)
+            # check kl constraint
+            kl = self.kldiv(lgc, xdist)
 
-        if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
-            # update controller
-            self.ctl = lgc
-            # update state-action dists.
-            self.xdist, self.udist, self.xudist = xdist, udist, xudist
-            # update value functions
-            self.vfunc, self.qfunc = xvalue, xuvalue
+            if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
+                # update controller
+                self.ctl = lgc
+                # update state-action dists.
+                self.xdist, self.udist, self.xudist = xdist, udist, xudist
+                # update value functions
+                self.vfunc, self.qfunc = xvalue, xuvalue
 
-        return ret
+        # mean objective under last dists.
+        _trace.append(self.objective(self.xdist.mu, self.udist.mu))
+
+        return _trace

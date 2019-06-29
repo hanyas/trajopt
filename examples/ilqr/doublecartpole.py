@@ -17,7 +17,15 @@ alg = iLQR(env, nb_steps=200,
            activation='last')
 
 # run iLQR
-alg.run()
+trace = alg.run()
 
 # plot forward pass
 alg.plot()
+
+# plot objective
+import matplotlib.pyplot as plt
+
+plt.figure()
+plt.plot(trace)
+plt.show()
+

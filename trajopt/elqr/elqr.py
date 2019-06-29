@@ -185,14 +185,22 @@ class eLQR:
 
         return _return
 
-    def run(self):
-        # forward lqr
-        self.forward_lqr()
+    def run(self, nb_iter=10):
+        _trace = []
+        for _ in range(nb_iter):
 
-        # backward lqr
-        self.backward_lqr()
+            # forward pass to get ref traj.
+            self.xref, self.uref = self.forward_pass(self.ctl)
 
-        # forward pass to get ref traj.
-        self.xref, self.uref = self.forward_pass(self.ctl)
+            # return around current traj.
+            _trace.append(self.objective(self.xref, self.uref))
 
-        return self.objective(self.xref, self.uref)
+            # forward lqr
+            self.forward_lqr()
+
+            # backward lqr
+            self.backward_lqr()
+
+        _trace.append(self.objective(self.xref, self.uref))
+
+        return _trace

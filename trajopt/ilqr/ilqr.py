@@ -128,9 +128,8 @@ class iLQR:
 
         return _return
 
-    def run(self, nb_iter=250):
+    def run(self, nb_iter=25):
         _trace = []
-
         # init trajectory
         for alpha in self.alphas:
             _state, _action = self.forward_pass(self.ctl, alpha)

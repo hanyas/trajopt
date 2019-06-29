@@ -14,10 +14,17 @@ env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 50
 
 alg = iLQR(env, nb_steps=50,
-           activation='all')
+           activation='last')
 
 # run iLQR
-alg.run()
+trace = alg.run()
 
 # plot forward pass
 alg.plot()
+
+# plot objective
+import matplotlib.pyplot as plt
+
+plt.figure()
+plt.plot(trace)
+plt.show()

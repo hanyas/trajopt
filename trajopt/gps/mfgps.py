@@ -187,45 +187,50 @@ class MFGPS:
 
         return _return
 
-    def run(self, nb_episodes):
-        # run current controller
-        self.data = self.sample(nb_episodes)
+    def run(self, nb_episodes, nb_iter=10):
+        _trace = []
+        for _ in range(nb_iter):
+            # run current controller
+            self.data = self.sample(nb_episodes)
 
-        # fit time-variant linear dynamics
-        self.dyn.learn(self.data)
+            # fit time-variant linear dynamics
+            self.dyn.learn(self.data)
 
-        # get quadratic cost around mean traj.
-        self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
+            # get quadratic cost around mean traj.
+            self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
 
-        # current state distribution
-        self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
+            # current state distribution
+            self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
-        # mean objective under current dists.
-        ret = self.objective(self.xdist.mu, self.udist.mu)
+            # mean objective under current dists.
+            _trace.append(self.objective(self.xdist.mu, self.udist.mu))
 
-        # use scipy optimizer
-        res = sc.optimize.minimize(self.dual, np.array([-1.e2]),
-                                   method='L-BFGS-B',
-                                   jac=True,
-                                   bounds=((-1e8, -1e-8), ),
-                                   options={'disp': False, 'maxiter': 1000,
-                                            'ftol': 1e-10})
-        self.alpha = res.x
+            # use scipy optimizer
+            res = sc.optimize.minimize(self.dual, np.array([-1.e2]),
+                                       method='L-BFGS-B',
+                                       jac=True,
+                                       bounds=((-1e8, -1e-8), ),
+                                       options={'disp': False, 'maxiter': 1000,
+                                                'ftol': 1e-10})
+            self.alpha = res.x
 
-        # re-compute after opt.
-        agcost = self.augment_cost(self.alpha)
-        lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agcost)
-        xdist, udist, xudist = self.forward_pass(lgc)
+            # re-compute after opt.
+            agcost = self.augment_cost(self.alpha)
+            lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agcost)
+            xdist, udist, xudist = self.forward_pass(lgc)
 
-        # check kl constraint
-        kl = self.kldiv(lgc, xdist)
+            # check kl constraint
+            kl = self.kldiv(lgc, xdist)
 
-        if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
-            # update controller
-            self.ctl = lgc
-            # update state-action dists.
-            self.xdist, self.udist, self.xudist = xdist, udist, xudist
-            # update value functions
-            self.vfunc, self.qfunc = xvalue, xuvalue
+            if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
+                # update controller
+                self.ctl = lgc
+                # update state-action dists.
+                self.xdist, self.udist, self.xudist = xdist, udist, xudist
+                # update value functions
+                self.vfunc, self.qfunc = xvalue, xuvalue
 
-        return ret
+        # mean objective under last dists.
+        _trace.append(self.objective(self.xdist.mu, self.udist.mu))
+
+        return _trace

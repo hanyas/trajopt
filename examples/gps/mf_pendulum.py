@@ -20,8 +20,7 @@ alg = MFGPS(env, nb_steps=150,
             activation='last')
 
 # run gps
-for _ in range(3):
-    alg.run(nb_episodes=10)
+trace = alg.run(nb_episodes=10)
 
 # plot dists
 alg.plot()
@@ -41,4 +40,9 @@ for k in range(alg.nb_udim):
     plt.subplot(alg.nb_xdim + alg.nb_udim, 1, alg.nb_xdim + k + 1)
     plt.plot(data['u'][k, ...])
 
+plt.show()
+
+# plot objective
+plt.figure()
+plt.plot(trace)
 plt.show()
