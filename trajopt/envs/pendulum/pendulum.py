@@ -56,18 +56,42 @@ class Pendulum(gym.Env):
 
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
-        th, dth = x
 
         g, m, l = 9.80665, 1.0, 1.0
 
-        # dthn = dth + self._dt * (3. * g / (2 * l) * np.sin(th) +
-        #                          3. / (m * l ** 2) * (u - self._k * dth))
-        dthn = dth + self._dt * (g * l * m * np.sin(th) + u - self._k * dth)
+        def f(x, u):
+            th, dth = x
+            # 3. * g / (2 * l) * np.sin(th) + 3. / (m * l ** 2) * (u - self._k * dth)
+            return np.hstack((dth, g * l * m * np.sin(th) + u - self._k * dth))
 
-        thn = th + dthn * self._dt
-        xn = np.hstack((thn, dthn))
+        k1 = f(x, u)
+        k2 = f(x + 0.5 * self.dt * k1, u)
+        k3 = f(x + 0.5 * self.dt * k2, u)
+        k4 = f(x + self.dt * k3, u)
 
+        xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
         xn = np.clip(xn, -self._xmax, self._xmax)
+
+        return xn
+
+    def inverse_dynamics(self, x, u):
+        u = np.clip(u, -self._umax, self._umax)
+
+        g, m, l = 9.80665, 1.0, 1.0
+
+        def f(x, u):
+            th, dth = x
+            # 3. * g / (2 * l) * np.sin(th) + 3. / (m * l ** 2) * (u - self._k * dth)
+            return np.hstack((dth, g * l * m * np.sin(th) + u - self._k * dth))
+
+        k1 = f(x, u)
+        k2 = f(x - 0.5 * self.dt * k1, u)
+        k3 = f(x - 0.5 * self.dt * k2, u)
+        k4 = f(x - self.dt * k3, u)
+
+        xn = x - self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
+        xn = np.clip(xn, -self._xmax, self._xmax)
+
         return xn
 
     def noise(self, x=None, u=None):

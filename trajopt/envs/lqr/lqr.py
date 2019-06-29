@@ -11,12 +11,12 @@ class LQR(gym.Env):
         self.nb_xdim = 2
         self.nb_udim = 1
 
-        self._dt = 0.01
+        self._dt = 0.1
         self._g = np.array([0., 0])
 
         # stochastic dynamics
-        self._A = np.array([[1.1, 0.], [0.1, 1.1]])
-        self._B = np.array([[0.1], [0.]])
+        self._A = np.array([[1.0, 0.], [1.0, 1.0]])
+        self._B = np.array([[1.], [0.]])
         self._c = np.zeros((2, ))
 
         self._sigma = 1.e-8 * np.eye(2)
@@ -59,10 +59,33 @@ class LQR(gym.Env):
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
 
-        xn = np.einsum('kh,h->k', self._A, x) + \
-             np.einsum('kh,h->k', self._B, u) + self._c
+        def f(x, u):
+            return self._A @ x + self._B @ u + self._c
 
+        k1 = f(x, u)
+        k2 = f(x + 0.5 * self.dt * k1, u)
+        k3 = f(x + 0.5 * self.dt * k2, u)
+        k4 = f(x + self.dt * k3, u)
+
+        xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
         xn = np.clip(xn, -self._xmax, self._xmax)
+
+        return xn
+
+    def inverse_dynamics(self, x, u):
+        u = np.clip(u, -self._umax, self._umax)
+
+        def f(x, u):
+            return self._A @ x + self._B @ u + self._c
+
+        k1 = f(x, u)
+        k2 = f(x - 0.5 * self.dt * k1, u)
+        k3 = f(x - 0.5 * self.dt * k2, u)
+        k4 = f(x - self.dt * k3, u)
+
+        xn = x - self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
+        xn = np.clip(xn, -self._xmax, self._xmax)
+
         return xn
 
     def noise(self, x=None, u=None):
