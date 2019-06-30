@@ -20,7 +20,7 @@ alg = MBGPS(env, nb_steps=150,
             activation='last')
 
 # run gps
-trace = alg.run(nb_iter=10)
+trace = alg.run(nb_iter=25)
 
 # plot dists
 alg.plot()
