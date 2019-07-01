@@ -11,11 +11,11 @@ from trajopt.gps import MBGPS
 
 
 # pendulum env
-env = gym.make('Pendulum-TO-v1')
+env = gym.make('Pendulum-TO-v0')
 env._max_episode_steps = 150
 
 alg = MBGPS(env, nb_steps=150,
-            kl_bound=10.,
+            kl_bound=5.,
             init_ctl_sigma=5.0,
             activation='last')
 

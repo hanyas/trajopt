@@ -36,9 +36,9 @@ class QCartpoleRR(QCartpoleBase):
         wcf = 62.8318
         zetaf = 0.9
         self._vel_filt_x = VelocityFilter(1, num=(wcf ** 2, 0), den=(1, 2 * wcf * zetaf, wcf ** 2),
-                                          x_init=sensor[0:1], dt=self.timing.dt)
-        self._vel_filt_th = VelocityFilter(1, num=(wcf**2, 0), den=(1, 2*wcf*zetaf, wcf**2),
-                                           x_init=sensor[1:2], dt=self.timing.dt)
+                                          x_init=sensor[0], dt=self.timing.dt)
+        self._vel_filt_th = VelocityFilter(1, num=(wcf ** 2, 0), den=(1, 2*wcf*zetaf, wcf**2),
+                                           x_init=sensor[1], dt=self.timing.dt)
 
         # Go to the left:
         if verbose:

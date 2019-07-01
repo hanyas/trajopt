@@ -82,9 +82,6 @@ class SwingUpCtrl:
 
     def __init__(self, long=False, mu=18.5, u_max=18, v_max=24):
         self.dynamics = CartpoleDynamics(long=long)
-        self.pd_control = False
-        self.pd_activated = False
-        self.done = False
 
         self.u_max = u_max
         self.v_max = v_max
@@ -101,7 +98,7 @@ class SwingUpCtrl:
         x, theta, x_dot, theta_dot = state
 
         if theta > np.pi:
-            alpha = (2. * np.pi - theta)
+            alpha = - (2. * np.pi - theta)
         else:
             alpha = theta
 
@@ -114,20 +111,12 @@ class SwingUpCtrl:
         Ep = Mp * dyna.g * pl * (1. - np.cos(theta + np.pi))     # E(pi) = 0., E(0) = E(2pi) = 2 mgl
         Er = 2 * Mp * dyna.g * pl                                # = 2 mgl
 
-        if np.abs(alpha) < 0.1745 or self.pd_control:
-            if not self.pd_activated:
-                pass
-
-            self.pd_activated = True
+        if np.abs(alpha) < 0.1745:
             u = np.matmul(self.Kpd, (np.array([x, alpha, x_dot, theta_dot])))
         else:
             self.u_max = 180
             u = np.clip(self.ke * ((Ep + Ek) - Er) * np.sign(theta_dot * np.cos(theta + np.pi)) +
                         self.kp * (0.0 - x), -self.u_max, self.u_max)
-
-            if self.pd_activated:
-                self.done = True
-                self.pd_activated = False
 
         Vm = (dyna.Jeq * dyna.Rm * dyna.r_mp * u) / (dyna.eta_g * dyna.Kg * dyna.eta_m * dyna.Kt)\
               + dyna.Kg * dyna.Km * x_dot / dyna.r_mp

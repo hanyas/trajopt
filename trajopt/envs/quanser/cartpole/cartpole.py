@@ -18,20 +18,20 @@ class QCartpole(QCartpoleBase):
         self.axle = None
 
     def _calibrate(self):
-        self._sim_state = np.array([0., np.pi + 0.1, 0., 0.])
-
         _wcf, _zetaf = 62.8318, 0.9  # filter params
-        self._vel_filt = VelocityFilter(1, num=(_wcf**2, 0), den=(1, 2. * _wcf * _zetaf, _wcf**2),
-                                        x_init=np.array([0., 2. * np.pi - 0.1]), dt=self.timing.dt)
+        self._vel_filt = VelocityFilter(x_len=self.sensor_space.shape[0],
+                                        x_init=np.array([0., np.pi]), dt=self.timing.dt,
+                                        num=(_wcf ** 2, 0),
+                                        den=(1, 2. * _wcf * _zetaf, _wcf ** 2))
 
+        self._sim_state = np.array([0., np.pi + 0.01 * self._np_random.randn(), 0., 0.])
         self._state = self._zero_sim_step()
 
-    def _sim_step(self, x, u):
-        self._sim_state = np.copy(x)
-
+    def _sim_step(self, u):
         # Add a bit of noise to action for robustness
         u_noisy = u + 1e-6 * np.float32(
             self._np_random.randn(self.action_space.shape[0]))
+
         acc = self.dyn(self._sim_state, u_noisy)
 
         # Update internal simulation state
@@ -42,8 +42,8 @@ class QCartpole(QCartpoleBase):
 
         # Pretend to only observe position and obtain velocity by filtering
         pos = self._sim_state[:2]
-        vel = self._sim_state[2:]
-        # vel = self._vel_filt(pos)
+        # vel = self._sim_state[2:]
+        vel = self._vel_filt(pos)
         return np.concatenate([pos, vel])
 
     def reset(self):

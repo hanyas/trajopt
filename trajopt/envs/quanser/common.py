@@ -173,13 +173,13 @@ class Base(gym.Env):
         self.done = False
         self.seed()
 
-    def _limit_act(self, action):
+    def _lim_act(self, action):
         raise NotImplementedError
 
     def _zero_sim_step(self):
-        raise NotImplementedError
+        return self._sim_step([0.0])
 
-    def _sim_step(self, x, u):
+    def _sim_step(self, u):
         """
         Update internal state of simulation and return an estimate thereof.
 
@@ -203,9 +203,8 @@ class Base(gym.Env):
         u_cmd = None
         for _ in range(self.timing.n_sim_per_ctrl):
             # this loop applies the constraints after each sim step
-            u_cmd = np.clip(u, self.action_space.low, self.action_space.high)
-            x = self._sim_step(x, u_cmd)
-            x = np.clip(x, self.state_space.low, self.state_space.high)
+            u_cmd = self._lim_act(u)
+            x = self._sim_step(u_cmd)
 
         return x, u_cmd
 

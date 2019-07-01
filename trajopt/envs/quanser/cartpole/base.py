@@ -8,7 +8,7 @@ X_LIM = 0.814
 
 class QCartpoleBase(Base):
     def __init__(self, fs, fs_ctrl):
-        super(CartpoleBase, self).__init__(fs, fs_ctrl)
+        super(QCartpoleBase, self).__init__(fs, fs_ctrl)
         self._state = None
         self._vel_filt = None
         self.timing = Timing(fs, fs_ctrl)
@@ -45,24 +45,15 @@ class QCartpoleBase(Base):
         self.seed()
 
     def _zero_sim_step(self):
-        return self._sim_step(np.array([0., np.pi + 0.1, 0., 0.]), np.array([0.]))
+        return self._sim_step([0.0])
 
-    def _limit_act(self, action):
+    def _lim_act(self, action):
         if np.abs(action) > 24.:
             warnings.warn("Control signal a = {0:.2f} should be between -24V and 24V.".format(action))
         return np.clip(action, -24., 24.)
 
     def _rwd(self, x, u):
-        x_c, th, _, _ = x
-        rwd = -np.cos(th)
-
-        # Normalize theta to [-pi, +pi]
-        th = np.mod(th + np.pi, 2. * np.pi) - np.pi
-
-        done = False
-        done = done or np.abs(x_c) > self._x_lim - self.safe_range
-
-        return np.float32(rwd) + 1., done
+        return np.array([0.], np.float32), False
 
     def _observation(self, state):
         """

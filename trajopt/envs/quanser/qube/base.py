@@ -1,4 +1,6 @@
 import numpy as np
+import warnings
+
 import gym
 
 from trajopt.envs.quanser.common import Base, LabeledBox, Timing
@@ -37,7 +39,12 @@ class QubeBase(Base):
         self.seed()
 
     def _zero_sim_step(self):
-        return self._sim_step(np.array([0., np.pi, 0., 0.]), np.array([0.]))
+        return self._sim_step([0.0])
+
+    def _lim_act(self, action):
+        if np.abs(action) > 5.:
+            warnings.warn("Control signal a = {0:.2f} should be between -5V and 5V.".format(action))
+        return np.clip(action, -5., 5.)
 
     def _rwd(self, x, u):
         th, al, thd, ald = x
