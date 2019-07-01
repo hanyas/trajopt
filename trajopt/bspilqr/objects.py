@@ -6,7 +6,7 @@
 # @Contact: hany@robot-learning.de
 
 import autograd.numpy as np
-from autograd import jacobian, hessian, elementwise_grad
+from autograd import jacobian, hessian
 from autograd.misc import flatten
 
 
@@ -207,18 +207,6 @@ class AnalyticalLinearBeliefDynamics(LinearBeliefDynamics):
         _phi = 0.5 * (_phi + _phi.T)
 
         return _f, _W, _phi
-
-    @staticmethod
-    def _elementwise_jacobian(func, x):
-        return np.stack([elementwise_grad(lambda xx: func(xx)[:, j])(x) for j in range(func(x).shape[-1])], axis=1)
-
-    def elementwise_jacobian(cls, func):
-        return lambda xx: cls._elementwise_jacobian(func, xx)
-
-    def flatten_ekf(self, mu_b, sigma_b, u):
-        _ex, unflatten = flatten(tuple([mu_b, sigma_b, u]))
-        _func = lambda _x: flatten(self.ekf(*unflatten(_x)))[0]
-        return _func, unflatten, _ex
 
     def finite_diff(self, b, u):
         for t in range(self.nb_steps):
