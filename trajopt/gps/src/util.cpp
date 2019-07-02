@@ -304,6 +304,8 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     cube sigma_ctl(nb_udim, nb_udim, nb_steps);
     cube prec_ctl(nb_udim, nb_udim, nb_steps);
 
+    int _diverge = 0;
+
     // last time step
     V.slice(nb_steps) = Cxx.slice(nb_steps);
     v.col(nb_steps) = cx.col(nb_steps);
@@ -323,6 +325,11 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
 
         q0(i) = (q0_common(i) + v0(i+1)) / alpha;
         q0_softmax(i) = (q0_common(i) + v0_softmax(i+1)) / alpha;
+
+        if ((Quu.slice(i)).is_sympd()) {
+            _diverge = i;
+            break;
+        }
 
         Quu_inv.slice(i) = inv(Quu.slice(i));
         K.slice(i) = - Quu_inv.slice(i) * Qux.slice(i);
@@ -364,7 +371,7 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
 
     py::tuple output =  py::make_tuple(_Qxx, _Qux, _Quu, _qx, _qu, _q0, _q0_softmax,
                                         _V, _v, _v0, _v0_softmax,
-                                        _K, _kff, _sigma_ctl);
+                                        _K, _kff, _sigma_ctl, _diverge);
 
     return output;
 }
