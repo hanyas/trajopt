@@ -15,12 +15,12 @@ env = gym.make('Cartpole-TO-v0')
 env._max_episode_steps = 200
 
 alg = MBGPS(env, nb_steps=200,
-            kl_bound=25.,
-            init_ctl_sigma=1.0,
+            kl_bound=10.,
+            init_ctl_sigma=5.0,
             activation='last')
 
 # run gps
-trace = alg.run()
+trace = alg.run(nb_iter=25)
 
 # plot dists
 alg.plot()

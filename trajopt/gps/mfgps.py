@@ -197,7 +197,7 @@ class MFGPS:
             self.dyn.learn(self.data)
 
             # get quadratic cost around mean traj.
-            self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
+            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.activation)
 
             # current state distribution
             self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
