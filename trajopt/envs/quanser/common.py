@@ -1,6 +1,6 @@
 import socket
 import struct
-import numpy as np
+import autograd.numpy as np
 from scipy import signal
 import gym
 from gym import spaces

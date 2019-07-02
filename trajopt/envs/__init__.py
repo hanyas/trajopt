@@ -18,3 +18,6 @@ from .quanser.qube.qube_rr import QubeRR
 
 from .quanser.cartpole.cartpole import QCartpole
 from .quanser.cartpole.cartpole_rr import QCartpoleRR
+
+from .quanser.cartpole.cartpole import QCartpoleTO
+from .quanser.qube.qube import QubeTO

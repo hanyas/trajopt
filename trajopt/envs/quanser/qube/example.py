@@ -6,14 +6,14 @@
 # @Contact: hany@robot-learning.de
 
 
-import numpy as np
+import autograd.numpy as np
 import gym
 
 import trajopt
 from trajopt.envs.quanser.qube.ctrl import SwingUpCtrl
 
 # quanser cartpole env
-env = gym.make('Quanser-Qube-TO-v0')
+env = gym.make('Quanser-Qube-v0')
 env._max_episode_steps = 1000000
 
 ctrl = SwingUpCtrl(ref_energy=0.04, energy_gain=30.0, acc_max=5.0)

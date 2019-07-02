@@ -1,7 +1,5 @@
-import numpy as np
+import autograd.numpy as np
 import warnings
-
-import gym
 
 from trajopt.envs.quanser.common import Base, LabeledBox, Timing
 
@@ -131,18 +129,3 @@ class QubeDynamics:
         aldd = (a * y - b * x) / d
 
         return thdd, aldd
-
-
-class Parameterized(gym.Wrapper):
-    """
-    Allow passing new dynamics parameters upon environment reset.
-    """
-    def params(self):
-        return self.unwrapped.dyn.params
-
-    def step(self, action):
-        return self.env.step(action)
-
-    def reset(self, params):
-        self.unwrapped.dyn.params = params
-        return self.env.reset()

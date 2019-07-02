@@ -1,4 +1,4 @@
-import numpy as np
+import autograd.numpy as np
 
 from trajopt.envs.quanser.common import QSocket, VelocityFilter
 from trajopt.envs.quanser.qube.base import QubeBase

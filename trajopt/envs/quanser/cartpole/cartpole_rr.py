@@ -1,4 +1,4 @@
-import numpy as np
+import autograd.numpy as np
 import time
 
 from trajopt.envs.quanser.common import QSocket, VelocityFilter

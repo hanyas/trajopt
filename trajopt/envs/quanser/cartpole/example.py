@@ -5,7 +5,7 @@
 # @Author: Hany Abdulsamad
 # @Contact: hany@robot-learning.de
 
-import numpy as np
+import autograd.numpy as np
 import gym
 
 import trajopt
@@ -13,7 +13,7 @@ from trajopt.envs.quanser.cartpole.ctrl import SwingUpCtrl
 
 
 # quanser cartpole env
-env = gym.make('Quanser-Cartpole-TO-v0')
+env = gym.make('Quanser-Cartpole-v0')
 env._max_episode_steps = 1000000
 
 ctrl = SwingUpCtrl()

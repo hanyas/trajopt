@@ -1,4 +1,5 @@
-import numpy as np
+import autograd.numpy as np
+from autograd import jacobian
 
 from trajopt.envs.quanser.common import VelocityFilter
 from trajopt.envs.quanser.qube.base import QubeBase, QubeDynamics
@@ -100,3 +101,56 @@ class Qube(QubeBase):
         self._vis['curve'].append(
             self._vis['pole'].pos + self._vis['pole'].axis)
         self._vis['vp'].rate(self.timing.render_rate)
+
+
+class QubeTO(QubeBase):
+
+    def __init__(self, fs, fs_ctrl):
+        super(QubeTO, self).__init__(fs, fs_ctrl)
+        self.dyn = QubeDynamics()
+
+        self._x0 = np.array([0., np.pi, 0., 0.])
+        self._sigma_0 = 1.e-4 * np.eye(4)
+
+        self._sigma = 1.e-4 * np.eye(4)
+
+        self._g = np.array([0., 2. * np.pi, 0., 0.])
+        self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
+
+        self._uw = np.array([1.e-3])
+
+    def init(self):
+        return self._x0, self._sigma_0
+
+    def dynamics(self, x, u):
+        def f(x, u):
+            _acc = self.dyn(x, u)
+            return np.hstack((x[2], x[3], _acc))
+
+        k1 = f(x, u)
+        k2 = f(x + 0.5 * self.timing.dt * k1, u)
+        k3 = f(x + 0.5 * self.timing.dt * k2, u)
+        k4 = f(x + self.timing.dt * k3, u)
+
+        xn = x + self.timing.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
+        return xn
+
+    def features(self, x):
+        return x
+
+    def features_jacobian(self, x):
+        _J = jacobian(self.features, 0)
+        _j = self.features(x) - _J(x) @ x
+        return _J, _j
+
+    def noise(self, x=None, u=None):
+        return self._sigma
+
+    # xref is a hack to avoid autograd diffing through the jacobian
+    def cost(self, x, u, a, xref):
+        if a:
+            _J, _j = self.features_jacobian(xref)
+            _x = _J(xref) @ x + _j
+            return (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
+        else:
+            return u.T @ np.diag(self._uw) @ u

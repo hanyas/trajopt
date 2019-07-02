@@ -1,4 +1,4 @@
-import numpy as np
+import autograd.numpy as np
 import warnings
 
 from trajopt.envs.quanser.common import Base, LabeledBox, Timing
@@ -105,14 +105,14 @@ class CartpoleDynamics:
         x, theta, x_dot, theta_dot = s
 
         # Compute force acting on the cart:
-        F = np.asscalar((self.eta_g * self.Kg * self.eta_m * self.Kt) / (self.Rm * self.r_mp) *
-                        (-self.Kg * self.Km * x_dot / self.r_mp + self.eta_m * v_m))
+        F = (self.eta_g * self.Kg * self.eta_m * self.Kt) / (self.Rm * self.r_mp) *\
+            (-self.Kg * self.Km * x_dot / self.r_mp + self.eta_m * v_m)
 
         # Compute acceleration:
         A = np.array([[self.mp + self.Jeq, self.mp * self.pl * np.cos(theta + np.pi)],
                       [self.mp * self.pl * np.cos(theta + np.pi), self.Jp + self.mp * self.pl ** 2]])
 
-        b = np.array([F - self.Beq * x_dot - self.mp * self.pl * np.sin(theta + np.pi) * theta_dot ** 2,
+        b = np.array([F[0] - self.Beq * x_dot - self.mp * self.pl * np.sin(theta + np.pi) * theta_dot ** 2,
                       0. - self.Bp * theta_dot - self.mp * self.pl * self.g * np.sin(theta + np.pi)])
 
         s_ddot = np.linalg.solve(A, b)
