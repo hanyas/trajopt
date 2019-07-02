@@ -7,6 +7,7 @@
 
 import autograd.numpy as np
 from autograd import jacobian, hessian
+from copy import deepcopy
 
 
 class Gaussian:
@@ -90,6 +91,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
         super(AnalyticalQuadraticCost, self).__init__(nb_xdim, nb_udim, nb_steps)
 
         self.f = f
+
         self.dcdxx = hessian(self.f, 0)
         self.dcduu = hessian(self.f, 1)
         self.dcdxu = jacobian(jacobian(self.f, 0), 1)
@@ -98,14 +100,15 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdu = jacobian(self.f, 1)
 
     def evalf(self, x, u, a):
-        return self.f(x, u, a)
+        _xref = deepcopy(x)
+        return self.f(x, u, a, _xref)
 
-    def finite_diff(self, x, u, a):
+    def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
-
+        _xref = deepcopy(x)
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t], a[t]])
+            _in = tuple([x[..., t], _u[..., t], a[t], _xref[..., t]])
             self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
             self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
             self.Cxu[..., t] = self.dcdxu(*_in)
@@ -164,7 +167,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
     def evalf(self, x, u):
         return self.f(x, u)
 
-    def finite_diff(self, x, u):
+    def taylor_expansion(self, x, u):
         _A = self.dfdx(x, u)
         _B = self.dfdu(x, u)
         # residual of taylor expansion
@@ -177,7 +180,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         _mu_u, _sigma_u = u.mu[..., t], u.sigma[..., t]
 
         _K, _kff, _ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
-        _A, _B, _c, _dyn_sigma = self.finite_diff(_mu_x, _mu_u)
+        _A, _B, _c, _dyn_sigma = self.taylor_expansion(_mu_x, _mu_u)
 
         _mu_xn = self.evalf(_mu_x, _mu_u)
 

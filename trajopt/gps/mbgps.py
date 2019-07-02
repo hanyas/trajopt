@@ -55,7 +55,7 @@ class MBGPS:
         self.dyn = AnalyticalLinearGaussianDynamics(self.env_init, self.env_dyn, self.env_noise,
                                                     self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
-        self.ctl.kff = np.random.randn(self.nb_udim, self.nb_steps)
+        self.ctl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of cost function
         if activation == 'all':
@@ -123,11 +123,11 @@ class MBGPS:
         xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
         xuvalue.qx, xuvalue.qu, xuvalue.q0, xuvalue.q0_softmax,\
         xvalue.V, xvalue.v, xvalue.v0, xvalue.v0_softmax,\
-        lgc.K, lgc.kff, lgc.sigma = backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
-                                                  agcost.cu, agcost.Cxu, agcost.c0,
-                                                  self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
-                                                  alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
-        return lgc, xvalue, xuvalue
+        lgc.K, lgc.kff, lgc.sigma, diverge = backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
+                                                           agcost.cu, agcost.Cxu, agcost.c0,
+                                                           self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
+                                                           alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
+        return lgc, xvalue, xuvalue, diverge
 
     def augment_cost(self, alpha):
         agcost = QuadraticCost(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
@@ -143,7 +143,7 @@ class MBGPS:
         agcost = self.augment_cost(alpha)
 
         # backward pass
-        lgc, xvalue, xuvalue = self.backward_pass(alpha, agcost)
+        lgc, xvalue, xuvalue, diverge = self.backward_pass(alpha, agcost)
 
         # forward pass
         xdist, udist, xudist = self.forward_pass(lgc)
@@ -207,10 +207,10 @@ class MBGPS:
             _trace.append(self.objective(self.xdist.mu, self.udist.mu))
 
             # get quadratic cost around mean traj.
-            self.cost.finite_diff(self.xdist.mu, self.udist.mu, self.activation)
+            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.activation)
 
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1.e2]),
+            res = sc.optimize.minimize(self.dual, np.array([-1.e3]),
                                        method='L-BFGS-B',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
@@ -220,7 +220,7 @@ class MBGPS:
 
             # re-compute after opt.
             agcost = self.augment_cost(self.alpha)
-            lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agcost)
+            lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
             xdist, udist, xudist = self.forward_pass(lgc)
 
             # check kl constraint

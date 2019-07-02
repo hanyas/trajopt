@@ -7,6 +7,7 @@
 
 import autograd.numpy as np
 from autograd import jacobian, hessian
+from copy import deepcopy
 
 
 class QuadraticStateValue:
@@ -49,6 +50,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
         super(AnalyticalQuadraticCost, self).__init__(nb_xdim, nb_udim, nb_steps)
 
         self.f = f
+
         self.dcdxx = hessian(self.f, 0)
         self.dcduu = hessian(self.f, 1)
         self.dcdxu = jacobian(jacobian(self.f, 0), 1)
@@ -57,10 +59,12 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdu = jacobian(self.f, 1)
 
     def evalf(self, x, u, a):
-        return self.f(x, u, a)
+        _xref = deepcopy(x)
+        return self.f(x, u, a, _xref)
 
-    def finite_diff(self, x, u, a):
-        _in = tuple([x, u, a])
+    def taylor_expansion(self, x, u, a):
+        _xref = deepcopy(x)
+        _in = tuple([x, u, a, _xref])
         _Cxx = 0.5 * self.dcdxx(*_in)
         _Cuu = 0.5 * self.dcduu(*_in)
         _Cxu = self.dcdxu(*_in)
@@ -114,7 +118,7 @@ class AnalyticalLinearDynamics(LinearDynamics):
     def evalf(self, x, u):
         return self.f(x, u)
 
-    def finite_diff(self, x, u):
+    def taylor_expansion(self, x, u):
         _A = self.dfdx(x, u)
         _B = self.dfdu(x, u)
         # residual of taylor expansion

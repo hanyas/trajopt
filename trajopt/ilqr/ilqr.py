@@ -19,8 +19,8 @@ class iLQR:
     def __init__(self, env, nb_steps,
                  alphas=np.power(10., np.linspace(0, -3, 11)),
                  lmbda=1., dlmbda=1.,
-                 min_lmbda=1.e-6, max_lmbda=1.e3, mult_lmbda=1.6,
-                 tolfun=1.e-7, tolgrad=1.e-4, min_imp=0., reg=1,
+                 min_lmbda=1.e-6, max_lmbda=1.e6, mult_lmbda=1.6,
+                 tolfun=1.e-8, tolgrad=1.e-6, min_imp=0., reg=1,
                  activation='last'):
 
         self.env = env
@@ -146,10 +146,10 @@ class iLQR:
 
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
-            self.dyn.finite_diff(self.xref, self.uref)
+            self.dyn.taylor_expansion(self.xref, self.uref)
 
             # get quadratic cost around ref traj.
-            self.cost.finite_diff(self.xref, self.uref, self.activation)
+            self.cost.taylor_expansion(self.xref, self.uref, self.activation)
 
             xvalue, xuvalue = None, None
             lc, dvalue = None, None

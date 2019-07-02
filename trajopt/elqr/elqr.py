@@ -51,7 +51,7 @@ class eLQR:
         self.ctl.kff = np.random.randn(self.nb_udim, self.nb_steps)
 
         self.ictl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
-        self.ictl.kff = np.random.randn(self.nb_udim, self.nb_steps)
+        self.ictl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of cost function
         if activation == 'all':
@@ -82,10 +82,10 @@ class eLQR:
             _state_n = self.dyn.evalf(state, _action)
 
             # linearize inverse discrete dynamics
-            _A, _B, _c = self.idyn.finite_diff(_state_n, _action)
+            _A, _B, _c = self.idyn.taylor_expansion(_state_n, _action)
 
             # quadratize cost
-            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.finite_diff(state, _action, self.activation[..., t])
+            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.taylor_expansion(state, _action, self.activation[..., t])
 
             # forward value
             _Qxx = _A.T @ (_Cxx + self.comecost.V[..., t]) @ _A
@@ -123,7 +123,7 @@ class eLQR:
     def backward_lqr(self, state):
         # quadratize last cost
         _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 =\
-            self.cost.finite_diff(state, np.zeros((self.nb_udim, )), self.activation[..., -1])
+            self.cost.taylor_expansion(state, np.zeros((self.nb_udim, )), self.activation[..., -1])
 
         self.gocost.V[..., -1] = _Cxx
         self.gocost.v[..., -1] = _cx
@@ -137,10 +137,10 @@ class eLQR:
 
             _state_n = self.idyn.evalf(state, _action)
             # linearize discrete dynamics
-            _A, _B, _c = self.dyn.finite_diff(_state_n, _action)
+            _A, _B, _c = self.dyn.taylor_expansion(_state_n, _action)
 
             # quadratize cost
-            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.finite_diff(_state_n, _action, self.activation[..., t])
+            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.taylor_expansion(_state_n, _action, self.activation[..., t])
 
             # backward value
             _Qxx = _Cxx + _A.T @ self.gocost.V[..., t + 1] @ _A
