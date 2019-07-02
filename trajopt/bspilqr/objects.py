@@ -82,7 +82,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
     def evalf(self, mu_b, sigma_b, u, a):
         return self.f(mu_b, sigma_b, u, a)
 
-    def finite_diff(self, b, u, a):
+    def taylor_expansion(self, b, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
 
@@ -208,7 +208,7 @@ class AnalyticalLinearBeliefDynamics(LinearBeliefDynamics):
 
         return _f, _W, _phi
 
-    def finite_diff(self, b, u):
+    def taylor_expansion(self, b, u):
         for t in range(self.nb_steps):
             _in = tuple([b.mu[..., t], b.sigma[..., t], u[..., t]])
 

@@ -20,8 +20,8 @@ class BSPiLQR:
     def __init__(self, env, nb_steps,
                  alphas=np.power(10., np.linspace(0, -3, 11)),
                  lmbda=1., dlmbda=1.,
-                 min_lmbda=1.e-6, max_lmbda=1.e3, mult_lmbda=1.6,
-                 tolfun=1.e-7, tolgrad=1.e-4, min_imp=0., reg=1,
+                 min_lmbda=1.e-6, max_lmbda=1.e6, mult_lmbda=1.6,
+                 tolfun=1.e-8, tolgrad=1.e-6, min_imp=0., reg=1,
                  activation='last'):
 
         self.env = env
@@ -73,7 +73,7 @@ class BSPiLQR:
                                                   self.nb_bdim, self.nb_zdim, self.nb_udim, self.nb_steps)
 
         self.ctl = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
-        self.ctl.kff = np.random.randn(self.nb_udim, self.nb_steps)
+        self.ctl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of reward function
         if activation == 'all':
@@ -158,10 +158,10 @@ class BSPiLQR:
 
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
-            self.dyn.finite_diff(self.bref, self.uref)
+            self.dyn.taylor_expansion(self.bref, self.uref)
 
             # get quadratic cost around ref traj.
-            self.cost.finite_diff(self.bref, self.uref, self.activation)
+            self.cost.taylor_expansion(self.bref, self.uref, self.activation)
 
             bvalue = None
             lc, dvalue = None, None
