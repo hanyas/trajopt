@@ -16,11 +16,11 @@ env._max_episode_steps = 100
 
 alg = MFGPS(env, nb_steps=100,
             kl_bound=10.,
-            init_ctl_sigma=1.,
+            init_ctl_sigma=50.,
             activation='last')
 
 # run gps
-trace = alg.run(nb_episodes=10)
+trace = alg.run(nb_episodes=10, nb_iter=5)
 
 # plot dists
 alg.plot()

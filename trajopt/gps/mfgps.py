@@ -113,11 +113,11 @@ class MFGPS:
         xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
         xuvalue.qx, xuvalue.qu, xuvalue.q0, xuvalue.q0_softmax,\
         xvalue.V, xvalue.v, xvalue.v0, xvalue.v0_softmax,\
-        lgc.K, lgc.kff, lgc.sigma = backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
-                                                  agcost.cu, agcost.Cxu, agcost.c0,
-                                                  self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
-                                                  alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
-        return lgc, xvalue, xuvalue
+        lgc.K, lgc.kff, lgc.sigma, diverge = backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
+                                                           agcost.cu, agcost.Cxu, agcost.c0,
+                                                           self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
+                                                           alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
+        return lgc, xvalue, xuvalue, diverge
 
     def augment_cost(self, alpha):
         agcost = QuadraticCost(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
@@ -133,7 +133,7 @@ class MFGPS:
         agcost = self.augment_cost(alpha)
 
         # backward pass
-        lgc, xvalue, xuvalue = self.backward_pass(alpha, agcost)
+        lgc, xvalue, xuvalue, diverge = self.backward_pass(alpha, agcost)
 
         # forward pass
         xdist, udist, xudist = self.forward_pass(lgc)
@@ -178,35 +178,27 @@ class MFGPS:
 
         plt.show()
 
-    def objective(self, x, u):
-        # summed mean return
-        _return = 0.0
-        for t in range(self.nb_steps):
-            _return += self.cost.evalf(x[..., t], u[..., t], self.activation[..., t])
-        _return += self.cost.evalf(x[..., -1], np.zeros((self.nb_udim, )), self.activation[..., -1])
-
-        return _return
-
     def run(self, nb_episodes, nb_iter=10):
         _trace = []
+
+        # run init controller
+        self.data = self.sample(nb_episodes)
+        # fit time-variant linear dynamics
+        self.dyn.learn(self.data)
+        # current state distribution
+        self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
+        # mean objective under current ctrl.
+        _trace.append(np.mean(np.sum(self.data['c'], axis=0)))
+
         for _ in range(nb_iter):
-            # run current controller
-            self.data = self.sample(nb_episodes)
-
-            # fit time-variant linear dynamics
-            self.dyn.learn(self.data)
-
             # get quadratic cost around mean traj.
             self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.activation)
 
-            # current state distribution
-            self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
-
-            # mean objective under current dists.
-            _trace.append(self.objective(self.xdist.mu, self.udist.mu))
+            # mean objective under current ctrl.
+            _trace.append(np.mean(np.sum(self.data['c'], axis=0)))
 
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1.e2]),
+            res = sc.optimize.minimize(self.dual, np.array([-1.e3]),
                                        method='L-BFGS-B',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
@@ -216,7 +208,7 @@ class MFGPS:
 
             # re-compute after opt.
             agcost = self.augment_cost(self.alpha)
-            lgc, xvalue, xuvalue = self.backward_pass(self.alpha, agcost)
+            lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
             xdist, udist, xudist = self.forward_pass(lgc)
 
             # check kl constraint
@@ -229,8 +221,13 @@ class MFGPS:
                 self.xdist, self.udist, self.xudist = xdist, udist, xudist
                 # update value functions
                 self.vfunc, self.qfunc = xvalue, xuvalue
-
-        # mean objective under last dists.
-        _trace.append(self.objective(self.xdist.mu, self.udist.mu))
+                # run current controller
+                self.data = self.sample(nb_episodes)
+                # fit time-variant linear dynamics
+                self.dyn.learn(self.data)
+                # mean objective under current ctrl.
+                _trace.append(np.mean(np.sum(self.data['c'], axis=0)))
+            else:
+                break
 
         return _trace

@@ -84,18 +84,22 @@ class BSPiLQR:
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_bdim, self.nb_udim, self.nb_steps + 1)
 
-        self.last_objective = - np.inf
+        self.last_return = - np.inf
 
     def forward_pass(self, ctl, alpha):
         belief = Gaussian(self.nb_bdim, self.nb_steps + 1)
         action = np.zeros((self.nb_udim, self.nb_steps))
+        rwrd = np.zeros((self.nb_steps + 1, ))
 
         belief.mu[..., 0], belief.sigma[..., 0] = self.dyn.evali()
         for t in range(self.nb_steps):
             action[..., t] = ctl.action(belief, alpha, self.bref.mu, self.uref, t)
+            rwrd[..., t] = self.cost.evalf(belief.mu[..., t], belief.sigma[..., t], action[..., t], self.activation[t])
             belief.mu[..., t + 1], belief.sigma[..., t + 1] = self.dyn.forward(belief, action, t)
 
-        return belief, action
+        rwrd[..., -1] = self.cost.evalf(belief.mu[..., -1], belief.sigma[..., -1],
+                                        np.zeros((self.nb_udim, )), self.activation[-1])
+        return belief, action, rwrd
 
     def backward_pass(self):
         lc = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
@@ -133,28 +137,20 @@ class BSPiLQR:
 
         plt.show()
 
-    def objective(self, b, u):
-        _return = 0.0
-        for t in range(self.nb_steps):
-            _return += self.env_cost(b.mu[..., t], b.sigma[..., t], u[..., t], self.activation[..., t])
-        _return += self.env_cost(b.mu[..., -1], b.sigma[..., -1], np.zeros((self.nb_udim,)), self.activation[..., -1])
-
-        return _return
-
     def run(self, nb_iter=250):
         _trace = []
         # init trajectory
         for alpha in self.alphas:
-            _belief, _action = self.forward_pass(self.ctl, alpha)
+            _belief, _action, _rwrd = self.forward_pass(self.ctl, alpha)
             if np.all(_belief.mu < 1.e8):
                 self.bref = _belief
                 self.uref = _action
-                self.last_objective = self.objective(self.bref, self.uref)
+                self.last_return = np.sum(_rwrd)
                 break
             else:
                 print("Initial trajectory diverges")
 
-        _trace.append(self.last_objective)
+        _trace.append(self.last_return)
 
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
@@ -194,13 +190,13 @@ class BSPiLQR:
             if backpass_done:
                 for alpha in self.alphas:
                     # apply on actual system
-                    _belief, _action = self.forward_pass(ctl=lc, alpha=alpha)
+                    _belief, _action, _rwrd = self.forward_pass(ctl=lc, alpha=alpha)
 
                     # summed mean return
-                    _return = self.objective(_belief, _action)
+                    _return = np.sum(_rwrd)
 
                     # check return improvement
-                    _dreturn = self.last_objective - _return
+                    _dreturn = self.last_return - _return
                     _expected = - 1. * alpha * (dvalue[0] + alpha * dvalue[1])
                     _imp = _dreturn / _expected
                     if _imp > self.min_imp:
@@ -215,13 +211,13 @@ class BSPiLQR:
 
                 self.bref = _belief
                 self.uref = _action
-                self.last_objective = _return
+                self.last_return = _return
 
                 self.vfunc = bvalue
 
                 self.ctl = lc
 
-                _trace.append(self.last_objective)
+                _trace.append(self.last_return)
 
                 # terminate if reached objective tolerance
                 if _dreturn < self.tolfun:

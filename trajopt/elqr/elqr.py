@@ -67,13 +67,16 @@ class eLQR:
     def forward_pass(self, ctl):
         state = np.zeros((self.nb_xdim, self.nb_steps + 1))
         action = np.zeros((self.nb_udim, self.nb_steps))
+        rwrd = np.zeros((self.nb_steps + 1,))
 
         state[..., 0], _ = self.dyn.evali()
         for t in range(self.nb_steps):
             action[..., t] = ctl.action(state[..., t], t)
+            rwrd[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
             state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
 
-        return state, action
+        rwrd[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
+        return state, action, rwrd
 
     def forward_lqr(self, state):
         for t in range(self.nb_steps):
@@ -187,30 +190,26 @@ class eLQR:
 
         plt.show()
 
-    def objective(self, x, u):
-        _return = 0.0
-        for t in range(self.nb_steps):
-            _return += self.cost.evalf(x[..., t], u[..., t], self.activation[..., t])
-        _return += self.cost.evalf(x[..., -1], np.zeros((self.nb_udim,)), self.activation[..., -1])
-
-        return _return
-
     def run(self, nb_iter=10):
         _trace = []
+
+        # forward pass to get ref traj.
+        self.xref, self.uref, _rwrd = self.forward_pass(self.ctl)
+        # return around current traj.
+        _trace.append(np.sum(_rwrd))
+
         _state, _ = self.dyn.evali()
         for _ in range(nb_iter):
-            # forward pass to get ref traj.
-            self.xref, self.uref = self.forward_pass(self.ctl)
-
-            # return around current traj.
-            _trace.append(self.objective(self.xref, self.uref))
-
             # forward lqr
             _state = self.forward_lqr(_state)
 
             # backward lqr
             _state = self.backward_lqr(_state)
 
-        _trace.append(self.objective(self.xref, self.uref))
+            # forward pass to get ref traj.
+            self.xref, self.uref, _rwrd = self.forward_pass(self.ctl)
+
+            # return around current traj.
+            _trace.append(np.sum(_rwrd))
 
         return _trace

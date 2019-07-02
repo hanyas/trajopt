@@ -65,7 +65,7 @@ class iLQR:
 
         self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
-        self.ctl.kff = np.random.randn(self.nb_udim, self.nb_steps)
+        self.ctl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of cost function
         if activation == 'all':
@@ -76,18 +76,21 @@ class iLQR:
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
 
-        self.last_objective = - np.inf
+        self.last_return = - np.inf
 
     def forward_pass(self, ctl, alpha):
         state = np.zeros((self.nb_xdim, self.nb_steps + 1))
         action = np.zeros((self.nb_udim, self.nb_steps))
+        rwrd = np.zeros((self.nb_steps + 1, ))
 
         state[..., 0], _ = self.dyn.evali()
         for t in range(self.nb_steps):
             action[..., t] = ctl.action(state, alpha, self.xref, self.uref, t)
+            rwrd[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
             state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
 
-        return state, action
+        rwrd[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
+        return state, action, rwrd
 
     def backward_pass(self):
         lc = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
@@ -121,28 +124,20 @@ class iLQR:
 
         plt.show()
 
-    def objective(self, x, u):
-        _return = 0.0
-        for t in range(self.nb_steps):
-            _return += self.cost.evalf(x[..., t], u[..., t], self.activation[..., t])
-        _return += self.cost.evalf(x[..., -1], np.zeros((self.nb_udim,)), self.activation[..., -1])
-
-        return _return
-
     def run(self, nb_iter=25):
         _trace = []
         # init trajectory
         for alpha in self.alphas:
-            _state, _action = self.forward_pass(self.ctl, alpha)
+            _state, _action, _rwrd = self.forward_pass(self.ctl, alpha)
             if np.all(_state < 1.e8):
                 self.xref = _state
                 self.uref = _action
-                self.last_objective = self.objective(self.xref, self.uref)
+                self.last_return = np.sum(_rwrd)
                 break
             else:
                 print("Initial trajectory diverges")
 
-        _trace.append(self.last_objective)
+        _trace.append(self.last_return)
 
         for _ in range(nb_iter):
             # get linear system dynamics around ref traj.
@@ -182,13 +177,13 @@ class iLQR:
             if backpass_done:
                 for alpha in self.alphas:
                     # apply on actual system
-                    _state, _action = self.forward_pass(ctl=lc, alpha=alpha)
+                    _state, _action, _rwrd = self.forward_pass(ctl=lc, alpha=alpha)
 
                     # summed mean return
-                    _return = self.objective(_state, _action)
+                    _return = np.sum(_rwrd)
 
                     # check return improvement
-                    _dreturn = self.last_objective - _return
+                    _dreturn = self.last_return - _return
                     _expected = - 1. * alpha * (dvalue[0] + alpha * dvalue[1])
                     _imp = _dreturn / _expected
                     if _imp > self.min_imp:
@@ -203,14 +198,14 @@ class iLQR:
 
                 self.xref = _state
                 self.uref = _action
-                self.last_objective = _return
+                self.last_return = _return
 
                 self.vfunc = xvalue
                 self.qfunc = xuvalue
 
                 self.ctl = lc
 
-                _trace.append(self.last_objective)
+                _trace.append(self.last_return)
 
                 # terminate if reached objective tolerance
                 if _dreturn < self.tolfun:
