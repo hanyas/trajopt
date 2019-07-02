@@ -93,7 +93,7 @@ class LQR(gym.Env):
         x = np.clip(x, -self._xmax, self._xmax)
         return self._sigma
 
-    def cost(self, x, u, a):
+    def cost(self, x, u, a, xref=None):
         if a:
             return (x - self._g).T @ np.diag(self._xw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
         else:

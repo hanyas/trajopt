@@ -3,6 +3,7 @@ from gym import spaces
 from gym.utils import seeding
 
 import autograd.numpy as np
+from autograd import jacobian
 
 
 class Cartpole(gym.Env):
@@ -12,25 +13,27 @@ class Cartpole(gym.Env):
         self.nb_udim = 1
 
         self._dt = 0.01
-        self._g = np.array([0., 2. * np.pi, 0., 0.])
+
+        self._x0 = np.array([0., np.pi, 0., 0.])
+        self._sigma_0 = 1.e-4 * np.eye(self.nb_xdim)
 
         self._sigma = 1.e-4 * np.eye(self.nb_xdim)
 
-        self._xw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
-        self._uw = np.array([1.e-3])
+        # g = [x, th, dx, dth]
+        self._g = np.array([0., 2. * np.pi, 0., 0.])
+        self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
 
         # x = [x, th, dx, dth]
         self._xmax = np.array([100., np.inf, 25., 25.])
-        self._umax = 10.0
-
-        self.action_space = spaces.Box(low=-self._umax,
-                                       high=self._umax, shape=(1,))
-
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
+        self._uw = np.array([1.e-3])
+        self._umax = 10.0
+        self.action_space = spaces.Box(low=-self._umax,
+                                       high=self._umax, shape=(1,))
+
         self.seed()
-        self.reset()
 
     @property
     def xlim(self):
@@ -50,7 +53,7 @@ class Cartpole(gym.Env):
 
     def init(self):
         # mu, sigma
-        return np.array([0., np.pi, 0., 0.]), 1.e-4 * np.eye(self.nb_xdim)
+        return self._x0, self._sigma_0
 
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
@@ -81,14 +84,25 @@ class Cartpole(gym.Env):
         xn = np.clip(xn, -self._xmax, self._xmax)
         return xn
 
+    def features(self, x):
+        return x
+
+    def features_jacobian(self, x):
+        _J = jacobian(self.features, 0)
+        _j = self.features(x) - _J(x) @ x
+        return _J, _j
+
     def noise(self, x=None, u=None):
         u = np.clip(u, -self._umax, self._umax)
         x = np.clip(x, -self._xmax, self._xmax)
         return self._sigma
 
-    def cost(self, x, u, a):
+    # xref is a hack to avoid autograd diffing through the jacobian
+    def cost(self, x, u, a, xref):
         if a:
-            return (x - self._g).T @ np.diag(self._xw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
+            _J, _j = self.features_jacobian(xref)
+            _x = _J(xref) @ x + _j
+            return (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
         else:
             return u.T @ np.diag(self._uw) @ u
 
@@ -109,3 +123,18 @@ class Cartpole(gym.Env):
         _mu_0, _sigma_0 = self.init()
         self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
         return self.state
+
+
+class CartpoleWithCartesianCost(Cartpole):
+
+    def __init__(self):
+        super(CartpoleWithCartesianCost, self).__init__()
+
+        # g = [x, cs_th, sn_th, dx, dth]
+        self._g = np.array([1e-1, 1., 0., 0., 0.])
+        self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1, 1.e-1])
+
+    def features(self, x):
+        return np.array([x[0],
+                        np.cos(x[1]), np.sin(x[1]),
+                        x[2], x[3]])

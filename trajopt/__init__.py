@@ -12,10 +12,16 @@ register(
     max_episode_steps=1000,
 )
 
-# pendulum in operational space
 register(
     id='Pendulum-TO-v1',
-    entry_point='trajopt.envs:TrigPendulum',
+    entry_point='trajopt.envs:PendulumWithCartesianCost',
+    max_episode_steps=1000,
+)
+
+# pendulum in operational space
+register(
+    id='Pendulum-TO-v2',
+    entry_point='trajopt.envs:PendulumWithCartesianObservation',
     max_episode_steps=1000,
 )
 
@@ -26,8 +32,20 @@ register(
 )
 
 register(
+    id='Cartpole-TO-v1',
+    entry_point='trajopt.envs:CartpoleWithCartesianCost',
+    max_episode_steps=1000,
+)
+
+register(
     id='DoubleCartpole-TO-v0',
     entry_point='trajopt.envs:DoubleCartpole',
+    max_episode_steps=1000,
+)
+
+register(
+    id='DoubleCartpole-TO-v1',
+    entry_point='trajopt.envs:DoubleCartpoleWithCartesianCost',
     max_episode_steps=1000,
 )
 
