@@ -12,17 +12,17 @@ class LQR(gym.Env):
         self.nb_udim = 1
 
         self._dt = 0.1
-        self._g = np.array([0., 0])
+        self._g = np.array([10., 10.])
 
         # stochastic dynamics
-        self._A = np.array([[1.0, 0.], [1.0, 1.0]])
+        self._A = np.array([[1.1, 0.], [1.0, 1.0]])
         self._B = np.array([[1.], [0.]])
-        self._c = np.zeros((2, ))
+        self._c = - self._A @ self._g  # stable at goal
 
         self._sigma = 1.e-8 * np.eye(2)
 
-        self._xw = np.array([1.e0, 1.e0])
-        self._uw = np.array([0.1])
+        self._gw = np.array([1.e1, 1.e1])
+        self._uw = np.array([1.])
 
         self._xmax = np.array([np.inf, np.inf])
         self._umax = np.inf
@@ -95,7 +95,7 @@ class LQR(gym.Env):
 
     def cost(self, x, u, a, xref=None):
         if a:
-            return (x - self._g).T @ np.diag(self._xw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
+            return (x - self._g).T @ np.diag(self._gw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
         else:
             return u.T @ np.diag(self._uw) @ u
 
