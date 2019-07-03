@@ -8,7 +8,7 @@
 import autograd.numpy as np
 
 from trajopt.riccati.objects import AnalyticalLinearDynamics, AnalyticalQuadraticCost
-from trajopt.riccati.objects import QuadraticStateValue, QuadraticStateActionValue
+from trajopt.riccati.objects import QuadraticStateValue
 from trajopt.riccati.objects import LinearControl
 
 
@@ -37,8 +37,6 @@ class Riccati:
         self.uref = np.zeros((self.nb_udim, self.nb_steps))
 
         self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
-        self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
-
         self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
         self.ctl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
 
