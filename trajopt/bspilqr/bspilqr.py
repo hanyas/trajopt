@@ -89,17 +89,17 @@ class BSPiLQR:
     def forward_pass(self, ctl, alpha):
         belief = Gaussian(self.nb_bdim, self.nb_steps + 1)
         action = np.zeros((self.nb_udim, self.nb_steps))
-        rwrd = np.zeros((self.nb_steps + 1, ))
+        cost = np.zeros((self.nb_steps + 1, ))
 
         belief.mu[..., 0], belief.sigma[..., 0] = self.dyn.evali()
         for t in range(self.nb_steps):
             action[..., t] = ctl.action(belief, alpha, self.bref.mu, self.uref, t)
-            rwrd[..., t] = self.cost.evalf(belief.mu[..., t], belief.sigma[..., t], action[..., t], self.activation[t])
+            cost[..., t] = self.cost.evalf(belief.mu[..., t], belief.sigma[..., t], action[..., t], self.activation[t])
             belief.mu[..., t + 1], belief.sigma[..., t + 1] = self.dyn.forward(belief, action, t)
 
-        rwrd[..., -1] = self.cost.evalf(belief.mu[..., -1], belief.sigma[..., -1],
+        cost[..., -1] = self.cost.evalf(belief.mu[..., -1], belief.sigma[..., -1],
                                         np.zeros((self.nb_udim, )), self.activation[-1])
-        return belief, action, rwrd
+        return belief, action, cost
 
     def backward_pass(self):
         lc = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
@@ -141,11 +141,11 @@ class BSPiLQR:
         _trace = []
         # init trajectory
         for alpha in self.alphas:
-            _belief, _action, _rwrd = self.forward_pass(self.ctl, alpha)
+            _belief, _action, _cost = self.forward_pass(self.ctl, alpha)
             if np.all(_belief.mu < 1.e8):
                 self.bref = _belief
                 self.uref = _action
-                self.last_return = np.sum(_rwrd)
+                self.last_return = np.sum(_cost)
                 break
             else:
                 print("Initial trajectory diverges")
@@ -190,10 +190,10 @@ class BSPiLQR:
             if backpass_done:
                 for alpha in self.alphas:
                     # apply on actual system
-                    _belief, _action, _rwrd = self.forward_pass(ctl=lc, alpha=alpha)
+                    _belief, _action, _cost = self.forward_pass(ctl=lc, alpha=alpha)
 
                     # summed mean return
-                    _return = np.sum(_rwrd)
+                    _return = np.sum(_cost)
 
                     # check return improvement
                     _dreturn = self.last_return - _return

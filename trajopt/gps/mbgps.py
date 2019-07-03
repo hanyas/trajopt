@@ -95,16 +95,16 @@ class MBGPS:
     def extended_kalman(self, lgc):
         xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
         udist = Gaussian(self.nb_udim, self.nb_steps)
-        rwrd = np.zeros((self.nb_steps + 1, ))
+        cost = np.zeros((self.nb_steps + 1, ))
 
         xdist.mu[..., 0], xdist.sigma[..., 0] = self.dyn.evali()
         for t in range(self.nb_steps):
             udist.mu[..., t], udist.sigma[..., t] = lgc.forward(xdist, t)
-            rwrd[..., t] = self.cost.evalf(xdist.mu[..., t], udist.mu[..., t], self.activation[t])
+            cost[..., t] = self.cost.evalf(xdist.mu[..., t], udist.mu[..., t], self.activation[t])
             xdist.mu[..., t + 1], xdist.sigma[..., t + 1] = self.dyn.forward(xdist, udist, lgc, t)
 
-        rwrd[..., -1] = self.cost.evalf(xdist.mu[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
-        return xdist, udist, rwrd
+        cost[..., -1] = self.cost.evalf(xdist.mu[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
+        return xdist, udist, cost
 
     def forward_pass(self, lgc):
         xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
@@ -196,9 +196,9 @@ class MBGPS:
         _trace = []
 
         # get linear system dynamics around mean traj.
-        self.xdist, self.udist, _rwrd = self.extended_kalman(self.ctl)
+        self.xdist, self.udist, _cost = self.extended_kalman(self.ctl)
         # mean objective under current dists.
-        _trace.append(np.sum(_rwrd))
+        _trace.append(np.sum(_cost))
 
         for _ in range(nb_iter):
             # get quadratic cost around mean traj.
@@ -216,7 +216,7 @@ class MBGPS:
             # re-compute after opt.
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
-            xdist, udist, _rwrd = self.extended_kalman(lgc)
+            xdist, udist, _cost = self.extended_kalman(lgc)
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
@@ -229,7 +229,7 @@ class MBGPS:
                 # update value functions
                 self.vfunc, self.qfunc = xvalue, xuvalue
                 # mean objective under last dists.
-                _trace.append(np.sum(_rwrd))
+                _trace.append(np.sum(_cost))
             else:
                 break
 

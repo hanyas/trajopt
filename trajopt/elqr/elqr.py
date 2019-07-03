@@ -67,16 +67,16 @@ class eLQR:
     def forward_pass(self, ctl):
         state = np.zeros((self.nb_xdim, self.nb_steps + 1))
         action = np.zeros((self.nb_udim, self.nb_steps))
-        rwrd = np.zeros((self.nb_steps + 1,))
+        cost = np.zeros((self.nb_steps + 1,))
 
         state[..., 0], _ = self.dyn.evali()
         for t in range(self.nb_steps):
             action[..., t] = ctl.action(state[..., t], t)
-            rwrd[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
+            cost[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
             state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
 
-        rwrd[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
-        return state, action, rwrd
+        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
+        return state, action, cost
 
     def forward_lqr(self, state):
         for t in range(self.nb_steps):
@@ -194,9 +194,9 @@ class eLQR:
         _trace = []
 
         # forward pass to get ref traj.
-        self.xref, self.uref, _rwrd = self.forward_pass(self.ctl)
+        self.xref, self.uref, _cost = self.forward_pass(self.ctl)
         # return around current traj.
-        _trace.append(np.sum(_rwrd))
+        _trace.append(np.sum(_cost))
 
         _state, _ = self.dyn.evali()
         for _ in range(nb_iter):
@@ -207,9 +207,9 @@ class eLQR:
             _state = self.backward_lqr(_state)
 
             # forward pass to get ref traj.
-            self.xref, self.uref, _rwrd = self.forward_pass(self.ctl)
+            self.xref, self.uref, _cost = self.forward_pass(self.ctl)
 
             # return around current traj.
-            _trace.append(np.sum(_rwrd))
+            _trace.append(np.sum(_cost))
 
         return _trace
