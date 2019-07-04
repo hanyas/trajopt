@@ -13,7 +13,8 @@ from trajopt.elqr import eLQR
 env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 100
 
-alg = eLQR(env, nb_steps=100, activation='all')
+alg = eLQR(env, nb_steps=100,
+           activation=range(100))
 
 # run eLQR
 trace = alg.run()

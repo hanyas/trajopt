@@ -11,10 +11,10 @@ from trajopt.ilqr import iLQR
 
 # cartpole env
 env = gym.make('Cartpole-TO-v0')
-env._max_episode_steps = 200
+env._max_episode_steps = 700
 
-alg = iLQR(env, nb_steps=200,
-           activation='last')
+alg = iLQR(env, nb_steps=700,
+           activation=range(600, 700))
 
 # run iLQR
 trace = alg.run()

@@ -14,7 +14,7 @@ env = gym.make('Pendulum-TO-v0')
 env._max_episode_steps = 150
 
 alg = iLQR(env, nb_steps=150,
-           activation='last')
+           activation=range(100, 150))
 
 # run iLQR
 trace = alg.run(nb_iter=25)

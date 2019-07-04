@@ -14,7 +14,7 @@ env = gym.make('DoubleCartpole-TO-v0')
 env._max_episode_steps = 200
 
 alg = iLQR(env, nb_steps=200,
-           activation='last')
+           activation=range(150, 200))
 
 # run iLQR
 trace = alg.run()

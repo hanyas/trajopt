@@ -15,7 +15,7 @@ from trajopt.elqr.objects import LinearControl
 class eLQR:
 
     def __init__(self, env, nb_steps,
-                 activation='last'):
+                 activation=range(-1, 0)):
 
         self.env = env
 
@@ -54,11 +54,9 @@ class eLQR:
         self.ictl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
 
         # activation of cost function
-        if activation == 'all':
-            self.activation = np.ones((self.nb_steps + 1,), dtype=np.int64)
-        else:
-            self.activation = np.zeros((self.nb_steps + 1, ), dtype=np.int64)
-            self.activation[-1] = 1
+        self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
+        self.activation[-1] = 1.  # last step always in
+        self.activation[activation] = 1.
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
 

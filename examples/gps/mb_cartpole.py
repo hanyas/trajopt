@@ -11,16 +11,16 @@ from trajopt.gps import MBGPS
 
 
 # cartpole env
-env = gym.make('Cartpole-TO-v0')
-env._max_episode_steps = 200
+env = gym.make('Cartpole-TO-v1')
+env._max_episode_steps = 501
 
 alg = MBGPS(env, nb_steps=200,
-            kl_bound=10.,
+            kl_bound=1.,
             init_ctl_sigma=5.0,
-            activation='last')
+            activation=range(150, 200))
 
 # run gps
-trace = alg.run(nb_iter=25)
+trace = alg.run(nb_iter=50)
 
 # plot dists
 alg.plot()

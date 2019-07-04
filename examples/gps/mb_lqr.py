@@ -17,7 +17,7 @@ env._max_episode_steps = 60
 alg = MBGPS(env, nb_steps=60,
             kl_bound=100.,
             init_ctl_sigma=100.,
-            activation='all')
+            activation=range(60))
 
 # run gps
 trace = alg.run()

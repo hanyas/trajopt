@@ -13,7 +13,8 @@ from trajopt.bspilqr import BSPiLQR
 env = gym.make('Car-TO-v0')
 env._max_episode_steps = 25
 
-alg = BSPiLQR(env, nb_steps=25, activation='last')
+alg = BSPiLQR(env, nb_steps=25,
+              activation=range(-1, 0))
 
 # run belief-space ilqr
 trace = alg.run(nb_iter=5)

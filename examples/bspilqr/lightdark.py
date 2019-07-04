@@ -13,7 +13,8 @@ from trajopt.bspilqr import BSPiLQR
 env = gym.make('LightDark-TO-v0')
 env._max_episode_steps = 25
 
-alg = BSPiLQR(env, nb_steps=25, activation='all')
+alg = BSPiLQR(env, nb_steps=25,
+              activation=range(25))
 
 # run belief-space ilqr
 trace = alg.run()

@@ -14,7 +14,7 @@ env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 100
 
 alg = iLQR(env, nb_steps=60,
-           activation='all')
+           activation=range(60))
 
 # run iLQR
 trace = alg.run()
