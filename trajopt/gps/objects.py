@@ -85,6 +85,16 @@ class QuadraticCost:
     def params(self, values):
         self.Cxx, self.cx, self.Cuu, self.cu, self.Cxu, self.c0 = values
 
+    def evaluate(self, x, u):
+        _ret = 0.
+        _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
+        for t in range(self.nb_steps):
+            _ret += x[..., t].T @ self.Cxx[..., t] @ x[..., t] +\
+                    _u[..., t].T @ self.Cuu[..., t] @ _u[..., t] +\
+                    x[..., t].T @ self.Cxu[..., t] @ _u[..., t] +\
+                    self.cx[..., t].T @ x[..., t] +\
+                    self.cu[..., t].T @ _u[..., t] + self.c0[..., t]
+        return _ret
 
 class AnalyticalQuadraticCost(QuadraticCost):
     def __init__(self, f, nb_xdim, nb_udim, nb_steps):

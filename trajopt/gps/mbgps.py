@@ -40,7 +40,14 @@ class MBGPS:
         self.nb_steps = nb_steps
 
         # total kl over traj.
+        self.kl_base = kl_bound
         self.kl_bound = kl_bound
+
+        # kl mult.
+        self.kl_mult = 1.
+        self.kl_mult_min = 0.1
+        self.kl_mult_max = 5.0
+
         self.alpha = np.array([-100.])
 
         # create state distribution and initialize first time step
@@ -64,6 +71,8 @@ class MBGPS:
         self.activation[activation] = 1.
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
+
+        self.last_return = - np.inf
 
     def sample(self, nb_episodes, stoch=True):
         data = {'x': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
@@ -92,6 +101,11 @@ class MBGPS:
         return data
 
     def extended_kalman(self, lgc):
+        """
+        Forward pass on actual dynamics
+        :param lgc:
+        :return:
+        """
         xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
         udist = Gaussian(self.nb_udim, self.nb_steps)
         cost = np.zeros((self.nb_steps + 1, ))
@@ -106,6 +120,11 @@ class MBGPS:
         return xdist, udist, cost
 
     def forward_pass(self, lgc):
+        """
+        Forward pass on linearized system
+        :param lgc:
+        :return:
+        """
         xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
         udist = Gaussian(self.nb_udim, self.nb_steps)
         xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
@@ -194,10 +213,11 @@ class MBGPS:
     def run(self, nb_iter=10):
         _trace = []
 
-        # get linear system dynamics around mean traj.
+        # get mena traj. and linear system dynamics
         self.xdist, self.udist, _cost = self.extended_kalman(self.ctl)
         # mean objective under current dists.
-        _trace.append(np.sum(_cost))
+        self.last_return = np.sum(_cost)
+        _trace.append(self.last_return)
 
         for _ in range(nb_iter):
             # get quadratic cost around mean traj.
@@ -216,10 +236,23 @@ class MBGPS:
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
             xdist, udist, _cost = self.extended_kalman(lgc)
+            _return = np.sum(_cost)
+
+            # get expected improvment:
+            expected_xdist, expected_udist, _ = self.forward_pass(lgc)
+            _expected_return = self.cost.evaluate(expected_xdist.mu, expected_udist.mu)
+
+            # expected vs actual improvement
+            _expected_imp = self.last_return - _expected_return
+            _actual_imp = self.last_return - _return
+
+            # update kl multiplier
+            _mult = _expected_imp / (2. * np.maximum(1.e-4, _expected_imp - _actual_imp))
+            _mult = np.maximum(0.1, np.minimum(5.0, _mult))
+            self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
-
             if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
                 # update controller
                 self.ctl = lgc
@@ -228,8 +261,13 @@ class MBGPS:
                 # update value functions
                 self.vfunc, self.qfunc = xvalue, xuvalue
                 # mean objective under last dists.
-                _trace.append(np.sum(_cost))
+                _trace.append(_return)
+                # update last return to current
+                self.last_return = _return
             else:
-                break
+                print("Something is wrong, KL not satisfied")
+
+            # update kl bound
+            self.kl_bound = self.kl_base * self.kl_mult
 
         return _trace

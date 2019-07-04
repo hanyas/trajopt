@@ -40,7 +40,14 @@ class MFGPS:
         self.nb_steps = nb_steps
 
         # total kl over traj.
+        self.kl_base = kl_bound
         self.kl_bound = kl_bound
+
+        # kl mult.
+        self.kl_mult = 1.
+        self.kl_mult_min = 0.1
+        self.kl_mult_max = 5.0
+
         self.alpha = np.array([-100.])
 
         # create state distribution and initialize first time step
@@ -62,6 +69,8 @@ class MFGPS:
         self.activation[activation] = 1.
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
+
+        self.last_return = - np.inf
 
         self.data = {}
 
@@ -187,7 +196,8 @@ class MFGPS:
         # current state distribution
         self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
         # mean objective under current ctrl.
-        _trace.append(np.mean(np.sum(self.data['c'], axis=0)))
+        self.last_return = np.mean(np.sum(self.data['c'], axis=0))
+        _trace.append(self.last_return)
 
         for _ in range(nb_iter):
             # get quadratic cost around mean traj.
@@ -208,11 +218,13 @@ class MFGPS:
             # re-compute after opt.
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
+
+            # get expected improvment:
             xdist, udist, xudist = self.forward_pass(lgc)
+            _expected_return = self.cost.evaluate(xdist.mu, udist.mu)
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
-
             if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
                 # update controller
                 self.ctl = lgc
@@ -224,9 +236,26 @@ class MFGPS:
                 self.data = self.sample(nb_episodes)
                 # fit time-variant linear dynamics
                 self.dyn.learn(self.data)
-                # mean objective under current ctrl.
-                _trace.append(np.mean(np.sum(self.data['c'], axis=0)))
             else:
-                break
+                print("Something is wrong, KL not satisfied")
+
+            # current return
+            _return = np.mean(np.sum(self.data['c'], axis=0))
+
+            # expected vs actual improvement
+            _expected_imp = self.last_return - _expected_return
+            _actual_imp = self.last_return - _return
+
+            # update kl multiplier
+            _mult = _expected_imp / (2. * np.maximum(1.e-4, _expected_imp - _actual_imp))
+            _mult = np.maximum(0.1, np.minimum(5.0, _mult))
+            self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
+
+            # update last return
+            self.last_return = _return
+            _trace.append(self.last_return)
+
+            # update kl bound
+            self.kl_bound = self.kl_base * self.kl_mult
 
         return _trace
