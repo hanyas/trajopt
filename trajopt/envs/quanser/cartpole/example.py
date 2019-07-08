@@ -19,11 +19,11 @@ env._max_episode_steps = 1000000
 ctrl = SwingUpCtrl()
 
 obs = env.reset()
-for n in range(15 * 500):
+for n in range(500):
     act = ctrl(obs)
     obs, _, done, _ = env.step(act)
     if done:
         break
 
-    if np.mod(n, 10) == 0:
+    if np.mod(n, 50) == 0:
         env.render()

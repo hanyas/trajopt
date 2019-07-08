@@ -64,14 +64,14 @@ register(
 register(
     id='Quanser-Qube-v0',
     entry_point='trajopt.envs:Qube',
-    max_episode_steps=300,
+    max_episode_steps=10000,
     kwargs={'fs': 500.0, 'fs_ctrl': 100.0}
 )
 
 register(
     id='Quanser-QubeRR-v0',
     entry_point='trajopt.envs:QubeRR',
-    max_episode_steps=300,
+    max_episode_steps=10000,
     kwargs={'ip': '192.172.162.1', 'fs_ctrl': 100.0}
 )
 
@@ -86,19 +86,19 @@ register(
     id='Quanser-Cartpole-v0',
     entry_point='trajopt.envs:QCartpole',
     max_episode_steps=10000,
-    kwargs={'fs': 500.0, 'fs_ctrl': 500.0, 'long_pole': False}
+    kwargs={'fs': 500.0, 'fs_ctrl': 100.0, 'long_pole': False}
 )
 
 register(
-    id='Quanser-CartpoleRR-v0',
-    entry_point='trajopt.envs:QCartpoleRR',
-    max_episode_steps=10000,
-    kwargs={'ip': '192.172.162.1', 'fs_ctrl': 500.0}
+     id='Quanser-CartpoleRR-v0',
+     entry_point='trajopt.envs:QCartpoleRR',
+     max_episode_steps=10000,
+     kwargs={'ip': '192.172.162.1', 'fs_ctrl': 100.0}
 )
 
 register(
     id='Quanser-Cartpole-TO-v0',
     entry_point='trajopt.envs:QCartpoleTO',
     max_episode_steps=10000,
-    kwargs={'fs': 100.0, 'fs_ctrl': 100.0}
+    kwargs={'fs': 500.0, 'fs_ctrl': 100.0}
 )

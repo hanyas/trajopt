@@ -32,7 +32,7 @@ class Pendulum(gym.Env):
                                             high=self._xmax)
 
         self._uw = np.array([1.e-3])
-        self._umax = 25.0
+        self._umax = 2.0
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
@@ -80,7 +80,7 @@ class Pendulum(gym.Env):
         return xn
 
     def inverse_dynamics(self, x, u):
-        u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self._umax, self._umax)
 
         g, m, l = 9.80665, 1., 1.
 
@@ -90,10 +90,10 @@ class Pendulum(gym.Env):
                               3. / (m * l ** 2) * (u - self._k * dth)))
             # return np.hstack((dth, g * l * m * np.sin(th) + u - self._k * dth))
 
-        k1 = f(x, u)
-        k2 = f(x - 0.5 * self.dt * k1, u)
-        k3 = f(x - 0.5 * self.dt * k2, u)
-        k4 = f(x - self.dt * k3, u)
+        k1 = f(x, _u)
+        k2 = f(x - 0.5 * self.dt * k1, _u)
+        k3 = f(x - 0.5 * self.dt * k2, _u)
+        k4 = f(x - self.dt * k3, _u)
 
         xn = x - self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
         xn = np.clip(xn, -self._xmax, self._xmax)
@@ -109,8 +109,8 @@ class Pendulum(gym.Env):
         return _J, _j
 
     def noise(self, x=None, u=None):
-        u = np.clip(u, -self._umax, self._umax)
-        x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self._umax, self._umax)
+        _x = np.clip(x, -self._xmax, self._xmax)
         return self._sigma
 
     # xref is a hack to avoid autograd diffing through the jacobian

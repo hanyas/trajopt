@@ -73,9 +73,14 @@ class LightDark(gym.Env):
         return _b0, _sigma_b0
 
     def dynamics(self, x, u):
-        return x + self._dt * u
+        _u = np.clip(u, -self._umax, self._umax)
+        xn = x + self._dt * _u
+        xn = np.clip(xn, -self._xmax, self._xmax)
+        return xn
 
     def dyn_noise(self, x=None, u=None):
+        _x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self._umax, self._umax)
         return 1.e-8 * np.eye(self.nb_xdim)
 
     def observe(self, x):

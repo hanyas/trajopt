@@ -24,12 +24,12 @@ class Cartpole(gym.Env):
         self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
 
         # x = [x, th, dx, dth]
-        self._xmax = np.array([100., np.inf, 25., 25.])
+        self._xmax = np.array([0., np.inf, 25., 25.])
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
         self._uw = np.array([1.e-3])
-        self._umax = 10.0
+        self._umax = 5.0
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
@@ -56,7 +56,7 @@ class Cartpole(gym.Env):
         return self._x0, self._sigma_0
 
     def dynamics(self, x, u):
-        u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self._umax, self._umax)
 
         # import from: https://github.com/JoeMWatson/input-inference-for-control/
         # x = [x, th, dx, dth]
@@ -71,10 +71,10 @@ class Cartpole(gym.Env):
         sth = np.sin(th)
         cth = np.cos(th)
 
-        _num = - Mp * l * sth * dth2 + Mt * g * sth - u * cth
+        _num = - Mp * l * sth * dth2 + Mt * g * sth - _u * cth
         _denom = l * ((4. / 3.) * Mt - Mp * cth ** 2)
         th_acc = _num / _denom
-        x_acc = (Mp * l * sth * dth2 - Mp * l * th_acc * cth + u) / Mt
+        x_acc = (Mp * l * sth * dth2 - Mp * l * th_acc * cth + _u) / Mt
 
         xn = np.hstack((x[0] + self._dt * (x[2] + self._dt * x_acc),
                        x[1] + self._dt * (x[3] + self._dt * th_acc),
@@ -93,8 +93,8 @@ class Cartpole(gym.Env):
         return _J, _j
 
     def noise(self, x=None, u=None):
-        u = np.clip(u, -self._umax, self._umax)
-        x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self._umax, self._umax)
+        _x = np.clip(x, -self._xmax, self._xmax)
         return self._sigma
 
     # xref is a hack to avoid autograd diffing through the jacobian

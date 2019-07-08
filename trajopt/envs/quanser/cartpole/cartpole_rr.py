@@ -36,9 +36,9 @@ class QCartpoleRR(QCartpoleBase):
         wcf = 62.8318
         zetaf = 0.9
         self._vel_filt_x = VelocityFilter(1, num=(wcf ** 2, 0), den=(1, 2 * wcf * zetaf, wcf ** 2),
-                                          x_init=sensor[0], dt=self.timing.dt)
+                x_init=sensor[0:1], dt=self.timing.dt)
         self._vel_filt_th = VelocityFilter(1, num=(wcf ** 2, 0), den=(1, 2*wcf*zetaf, wcf**2),
-                                           x_init=sensor[1], dt=self.timing.dt)
+                x_init=sensor[1:2], dt=self.timing.dt)
 
         # Go to the left:
         if verbose:
@@ -160,8 +160,8 @@ class QCartpoleRR(QCartpoleBase):
         x_dot = self._vel_filt_x(pos[0:1])
         th_dot = self._vel_filt_th(pos[1:2])
 
-        # Normalize the angle from -pi to +pi:
-        pos[1] = np.mod(pos[1] + np.pi, 2. * np.pi) - np.pi
+        # Normalize the angle from 0. to 2.*pi
+        pos[1] = np.mod(pos[1], 2. * np.pi) - np.pi
         return np.concatenate([pos, x_dot, th_dot])
 
     def reset(self, verbose=True):

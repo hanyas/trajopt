@@ -25,8 +25,8 @@ class DoubleCartpole(gym.Env):
         self._gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1.e-1])
         self._uw = np.array([1.e-3])
 
-        self._xmax = np.array([100., np.inf, np.inf, 25., 25., 25.])
-        self._umax = 10.0
+        self._xmax = np.array([10., np.inf, np.inf, 25., 25., 25.])
+        self._umax = 5.0
 
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
@@ -57,7 +57,7 @@ class DoubleCartpole(gym.Env):
         return self._x0, self._sigma_0
 
     def dynamics(self, x, u):
-        u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self._umax, self._umax)
 
         # import from: https://github.com/JoeMWatson/input-inference-for-control/
         """
@@ -134,7 +134,7 @@ class DoubleCartpole(gym.Env):
 
         G = np.vstack((G11, G21, G31))
 
-        action = np.vstack((u, 0.0, 0.0))
+        action = np.vstack((_u, 0.0, 0.0))
 
         M_inv = np.linalg.inv(M)
         C_x_dot = np.dot(C, x[3:].reshape((-1, 1)))
@@ -157,8 +157,8 @@ class DoubleCartpole(gym.Env):
         return _J, _j
 
     def noise(self, x=None, u=None):
-        u = np.clip(u, -self._umax, self._umax)
-        x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self._umax, self._umax)
+        _x = np.clip(x, -self._xmax, self._xmax)
         return self._sigma
 
     def cost(self, x, u, a, xref):

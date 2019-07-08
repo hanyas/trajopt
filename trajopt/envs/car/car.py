@@ -75,14 +75,18 @@ class Car(gym.Env):
         return _b0, _sigma_b0
 
     def dynamics(self, x, u):
+        _u = np.clip(u, -self._umax, self._umax)
         # x, y, th, v
         xn = x + self._dt * np.array([x[3] * np.cos(x[2]),
                                       x[3] * np.sin(x[2]),
-                                      x[3] * np.tan(u[1]) / self._l,
-                                      u[0]])
+                                      x[3] * np.tan(_u[1]) / self._l,
+                                      _u[0]])
+        xn = np.clip(xn, -self._xmax, self._xmax)
         return xn
 
     def dyn_noise(self, x=None, u=None):
+        _u = np.clip(u, -self._umax, self._umax)
+        _x = np.clip(x, -self._xmax, self._xmax)
         return 1.e-4 * np.eye(self.nb_xdim)
 
     def observe(self, x):
