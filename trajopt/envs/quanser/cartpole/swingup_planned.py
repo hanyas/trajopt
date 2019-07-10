@@ -93,7 +93,7 @@ def main():
     n_episodes = 5
 
     #  load ctl here
-    ilqr_dict =
+    ilqr_dict = np.load('ctl_gains.npz')
     K, kff, xref, uref = ilqr_dict['K'], ilqr_dict['kff'], ilqr_dict['xref'], ilqr_dict['uref']
 
     time_steps = uref.shape[1]
