@@ -32,12 +32,12 @@ data = alg.sample(nb_episodes, stoch=False)
 import matplotlib.pyplot as plt
 
 plt.figure()
-for k in range(alg.nb_xdim):
-    plt.subplot(alg.nb_xdim + alg.nb_udim, 1, k + 1)
+for k in range(alg.dm_state):
+    plt.subplot(alg.dm_state + alg.dm_act, 1, k + 1)
     plt.plot(data['x'][k, ...])
 
-for k in range(alg.nb_udim):
-    plt.subplot(alg.nb_xdim + alg.nb_udim, 1, alg.nb_xdim + k + 1)
+for k in range(alg.dm_act):
+    plt.subplot(alg.dm_state + alg.dm_act, 1, alg.dm_state + k + 1)
     plt.plot(data['u'][k, ...])
 
 plt.show()

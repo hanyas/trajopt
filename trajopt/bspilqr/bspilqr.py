@@ -37,9 +37,9 @@ class BSPiLQR:
 
         self.ulim = self.env.action_space.high
 
-        self.nb_bdim = self.env.unwrapped.state_space.shape[0]
-        self.nb_zdim = self.env.unwrapped.observation_space.shape[0]
-        self.nb_udim = self.env.action_space.shape[0]
+        self.dm_belief = self.env.unwrapped.state_space.shape[0]
+        self.dm_obs = self.env.unwrapped.observation_space.shape[0]
+        self.dm_act = self.env.action_space.shape[0]
         self.nb_steps = nb_steps
 
         # backtracking
@@ -61,32 +61,32 @@ class BSPiLQR:
         self.tolgrad = tolgrad
 
         # reference belief trajectory
-        self.bref = Gaussian(self.nb_bdim, self.nb_steps + 1)
+        self.bref = Gaussian(self.dm_belief, self.nb_steps + 1)
         self.bref.mu[..., 0], self.bref.sigma[..., 0] = self.env_init()
 
-        self.uref = np.zeros((self.nb_udim, self.nb_steps))
+        self.uref = np.zeros((self.dm_act, self.nb_steps))
 
-        self.vfunc = QuadraticBeliefValue(self.nb_bdim, self.nb_steps + 1)
+        self.vfunc = QuadraticBeliefValue(self.dm_belief, self.nb_steps + 1)
 
         self.dyn = AnalyticalLinearBeliefDynamics(self.env_init, self.env_dyn, self.env_obs,
                                                   self.env_dyn_noise, self.env_obs_noise,
-                                                  self.nb_bdim, self.nb_zdim, self.nb_udim, self.nb_steps)
+                                                  self.dm_belief, self.dm_obs, self.dm_act, self.nb_steps)
 
-        self.ctl = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
-        self.ctl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
+        self.ctl = LinearControl(self.dm_belief, self.dm_act, self.nb_steps)
+        self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
 
         # activation of cost function
         self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
         self.activation[-1] = 1.  # last step always in
         self.activation[activation] = 1.
 
-        self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_bdim, self.nb_udim, self.nb_steps + 1)
+        self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_belief, self.dm_act, self.nb_steps + 1)
 
         self.last_return = - np.inf
 
     def forward_pass(self, ctl, alpha):
-        belief = Gaussian(self.nb_bdim, self.nb_steps + 1)
-        action = np.zeros((self.nb_udim, self.nb_steps))
+        belief = Gaussian(self.dm_belief, self.nb_steps + 1)
+        action = np.zeros((self.dm_act, self.nb_steps))
         cost = np.zeros((self.nb_steps + 1, ))
 
         belief.mu[..., 0], belief.sigma[..., 0] = self.dyn.evali()
@@ -96,12 +96,12 @@ class BSPiLQR:
             belief.mu[..., t + 1], belief.sigma[..., t + 1] = self.dyn.forward(belief, action, t)
 
         cost[..., -1] = self.cost.evalf(belief.mu[..., -1], belief.sigma[..., -1],
-                                        np.zeros((self.nb_udim, )), self.activation[-1])
+                                        np.zeros((self.dm_act, )), self.activation[-1])
         return belief, action, cost
 
     def backward_pass(self):
-        lc = LinearControl(self.nb_bdim, self.nb_udim, self.nb_steps)
-        bvalue = QuadraticBeliefValue(self.nb_bdim, self.nb_steps + 1)
+        lc = LinearControl(self.dm_belief, self.dm_act, self.nb_steps)
+        bvalue = QuadraticBeliefValue(self.dm_belief, self.nb_steps + 1)
 
         bvalue.S, bvalue.s, bvalue.tau,\
         dS, lc.K, lc.kff, diverge = backward_pass(self.cost.Q, self.cost.q,
@@ -112,7 +112,7 @@ class BSPiLQR:
                                                   self.dyn.V, self.dyn.X,
                                                   self.dyn.Y, self.dyn.Z,
                                                   self.lmbda, self.reg,
-                                                  self.nb_bdim, self.nb_udim, self.nb_steps)
+                                                  self.dm_belief, self.dm_act, self.nb_steps)
         return lc, bvalue, dS, diverge
 
     def plot(self):
@@ -121,16 +121,16 @@ class BSPiLQR:
         plt.figure()
 
         t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-        for k in range(self.nb_bdim):
-            plt.subplot(self.nb_bdim + self.nb_udim, 1, k + 1)
+        for k in range(self.dm_belief):
+            plt.subplot(self.dm_belief + self.dm_act, 1, k + 1)
             plt.plot(t, self.bref.mu[k, :], '-b')
             lb = self.bref.mu[k, :] - 2. * np.sqrt(self.bref.sigma[k, k, :])
             ub = self.bref.mu[k, :] + 2. * np.sqrt(self.bref.sigma[k, k, :])
             plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
-        for k in range(self.nb_udim):
-            plt.subplot(self.nb_bdim + self.nb_udim, 1, self.nb_bdim + k + 1)
+        for k in range(self.dm_act):
+            plt.subplot(self.dm_belief + self.dm_act, 1, self.dm_belief + k + 1)
             plt.plot(t, self.uref[k, :], '-g')
 
         plt.show()

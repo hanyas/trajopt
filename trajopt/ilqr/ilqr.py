@@ -32,8 +32,8 @@ class iLQR:
 
         self.ulim = self.env.action_space.high
 
-        self.nb_xdim = self.env.observation_space.shape[0]
-        self.nb_udim = self.env.action_space.shape[0]
+        self.dm_state = self.env.observation_space.shape[0]
+        self.dm_act = self.env.action_space.shape[0]
         self.nb_steps = nb_steps
 
         # backtracking
@@ -55,30 +55,30 @@ class iLQR:
         self.tolgrad = tolgrad
 
         # reference trajectory
-        self.xref = np.zeros((self.nb_xdim, self.nb_steps + 1))
+        self.xref = np.zeros((self.dm_state, self.nb_steps + 1))
         self.xref[..., 0] = self.env_init()[0]
 
-        self.uref = np.zeros((self.nb_udim, self.nb_steps))
+        self.uref = np.zeros((self.dm_act, self.nb_steps))
 
-        self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
-        self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
+        self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.nb_xdim, self.nb_udim, self.nb_steps)
-        self.ctl = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
-        self.ctl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
+        self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.dm_state, self.dm_act, self.nb_steps)
+        self.ctl = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
+        self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
 
         # activation of cost function
         self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
         self.activation[-1] = 1.  # last step always in
         self.activation[activation] = 1.
 
-        self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
+        self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
         self.last_return = - np.inf
 
     def forward_pass(self, ctl, alpha):
-        state = np.zeros((self.nb_xdim, self.nb_steps + 1))
-        action = np.zeros((self.nb_udim, self.nb_steps))
+        state = np.zeros((self.dm_state, self.nb_steps + 1))
+        action = np.zeros((self.dm_act, self.nb_steps))
         cost = np.zeros((self.nb_steps + 1, ))
 
         state[..., 0], _ = self.dyn.evali()
@@ -87,13 +87,13 @@ class iLQR:
             cost[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
             state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
 
-        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
+        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
         return state, action, cost
 
     def backward_pass(self):
-        lc = LinearControl(self.nb_xdim, self.nb_udim, self.nb_steps)
-        xvalue = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
-        xuvalue = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
+        lc = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
+        xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
+        xuvalue = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
         xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
         xuvalue.qx, xuvalue.qu,\
@@ -102,7 +102,7 @@ class iLQR:
                                               self.cost.cu, self.cost.Cxu,
                                               self.dyn.A, self.dyn.B,
                                               self.lmbda, self.reg,
-                                              self.nb_xdim, self.nb_udim, self.nb_steps)
+                                              self.dm_state, self.dm_act, self.nb_steps)
         return lc, xvalue, xuvalue, dV, diverge
 
     def plot(self):
@@ -111,13 +111,13 @@ class iLQR:
         plt.figure()
 
         t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-        for k in range(self.nb_xdim):
-            plt.subplot(self.nb_xdim + self.nb_udim, 1, k + 1)
+        for k in range(self.dm_state):
+            plt.subplot(self.dm_state + self.dm_act, 1, k + 1)
             plt.plot(t, self.xref[k, :], '-b')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
-        for k in range(self.nb_udim):
-            plt.subplot(self.nb_xdim + self.nb_udim, 1, self.nb_xdim + k + 1)
+        for k in range(self.dm_act):
+            plt.subplot(self.dm_state + self.dm_act, 1, self.dm_state + k + 1)
             plt.plot(t, self.uref[k, :], '-g')
 
         plt.show()

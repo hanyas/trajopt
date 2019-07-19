@@ -9,8 +9,8 @@ from autograd import jacobian
 class Pendulum(gym.Env):
 
     def __init__(self):
-        self.nb_xdim = 2
-        self.nb_udim = 1
+        self.dm_state = 2
+        self.dm_act = 1
 
         self._dt = 0.025
 
@@ -18,9 +18,9 @@ class Pendulum(gym.Env):
         self._k = 1.e-3
 
         self._x0 = np.array([np.pi, 0.])
-        self._sigma_0 = 1.e-8 * np.eye(self.nb_xdim)
+        self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
 
-        self._sigma = 1.e-4 * np.eye(self.nb_xdim)
+        self._sigma = 1.e-4 * np.eye(self.dm_state)
 
         # g = [th, thd]
         self._g = np.array([2. * np.pi, 0.])
@@ -158,12 +158,12 @@ class PendulumWithCartesianObservation(Pendulum):
 
     def __init__(self):
         super(PendulumWithCartesianObservation, self).__init__()
-        self.nb_xdim = 3
+        self.dm_state = 3
 
         self._x0 = np.array([-1., 0., 0.])
-        self._sigma_0 = 1.e-8 * np.eye(self.nb_xdim)
+        self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
 
-        self._sigma = 1.e-4 * np.eye(self.nb_xdim)
+        self._sigma = 1.e-4 * np.eye(self.dm_state)
 
         # g = [cs_th, sn_th, dth]
         self._g = np.array([1., 0., 0.])

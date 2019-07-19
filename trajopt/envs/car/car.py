@@ -15,10 +15,10 @@ import autograd.numpy as np
 class Car(gym.Env):
 
     def __init__(self):
-        self.nb_xdim = 4
-        self.nb_bdim = 4
-        self.nb_udim = 2
-        self.nb_zdim = 2
+        self.dm_state = 4
+        self.dm_belief = 4
+        self.dm_act = 2
+        self.dm_obs = 2
 
         self._dt = 0.5
         self._g = np.array([0., 0., 0., 0.])
@@ -71,7 +71,7 @@ class Car(gym.Env):
     def init(self):
         # initial belief
         _b0 = np.array([2., 2., 0., 0.])
-        _sigma_b0 = 1. * np.eye(self.nb_bdim)
+        _sigma_b0 = 1. * np.eye(self.dm_belief)
         return _b0, _sigma_b0
 
     def dynamics(self, x, u):
@@ -87,13 +87,13 @@ class Car(gym.Env):
     def dyn_noise(self, x=None, u=None):
         _u = np.clip(u, -self._umax, self._umax)
         _x = np.clip(x, -self._xmax, self._xmax)
-        return 1.e-4 * np.eye(self.nb_xdim)
+        return 1.e-4 * np.eye(self.dm_state)
 
     def observe(self, x):
         return np.array([x[0], x[1]])
 
     def obs_noise(self, x=None):
-        _sigma = 1.e-4 * np.eye(self.nb_zdim)
+        _sigma = 1.e-4 * np.eye(self.dm_obs)
         _sigma += np.array([[0.5 * (5. - x[0])**2, 0.],
                             [0., 0.]])
         return _sigma

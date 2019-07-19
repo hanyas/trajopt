@@ -9,8 +9,8 @@ from autograd import jacobian
 class DoubleCartpole(gym.Env):
 
     def __init__(self):
-        self.nb_xdim = 6
-        self.nb_udim = 1
+        self.dm_state = 6
+        self.dm_act = 1
 
         self._dt = 0.01
 
@@ -18,9 +18,9 @@ class DoubleCartpole(gym.Env):
         self._g = np.array([0., 2. * np.pi, 0., 0., 0., 0.])
 
         self._x0 = np.array([0., np.pi, 0., 0., 0., 0.])
-        self._sigma_0 = 1.e-4 * np.eye(self.nb_xdim)
+        self._sigma_0 = 1.e-4 * np.eye(self.dm_state)
 
-        self._sigma = 1.e-4 * np.eye(self.nb_xdim)
+        self._sigma = 1.e-4 * np.eye(self.dm_state)
 
         self._gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1.e-1])
         self._uw = np.array([1.e-3])

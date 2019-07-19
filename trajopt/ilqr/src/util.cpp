@@ -84,7 +84,7 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
                         array_tf _cu, array_tf _Cxu,
                         array_tf _A, array_tf _B,
                         double lmbda, int reg,
-                        int nb_xdim, int nb_udim, int nb_steps) {
+                        int dm_state, int dm_act, int nb_steps) {
 
     // inputs
     cube Cxx = array_to_cube(_Cxx);
@@ -97,25 +97,25 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     cube B = array_to_cube(_B);
 
     // outputs
-    cube Q(nb_xdim + nb_udim, nb_xdim + nb_udim, nb_steps);
-    cube Qxx(nb_xdim, nb_xdim, nb_steps);
-    cube Qux(nb_udim, nb_xdim, nb_steps);
-    cube Quu(nb_udim, nb_udim, nb_steps);
-    mat qx(nb_xdim, nb_steps);
-    mat qu(nb_udim, nb_steps);
+    cube Q(dm_state + dm_act, dm_state + dm_act, nb_steps);
+    cube Qxx(dm_state, dm_state, nb_steps);
+    cube Qux(dm_act, dm_state, nb_steps);
+    cube Quu(dm_act, dm_act, nb_steps);
+    mat qx(dm_state, nb_steps);
+    mat qu(dm_act, nb_steps);
 
-    cube Qux_reg(nb_udim, nb_xdim, nb_steps);
-    cube Quu_reg(nb_udim, nb_udim, nb_steps);
-    cube Quu_inv(nb_udim, nb_udim, nb_steps);
+    cube Qux_reg(dm_act, dm_state, nb_steps);
+    cube Quu_reg(dm_act, dm_act, nb_steps);
+    cube Quu_inv(dm_act, dm_act, nb_steps);
 
-    cube V(nb_xdim, nb_xdim, nb_steps + 1);
-    mat v(nb_xdim, nb_steps + 1);
+    cube V(dm_state, dm_state, nb_steps + 1);
+    mat v(dm_state, nb_steps + 1);
     vec dV(2);
 
-    cube V_reg(nb_xdim, nb_xdim, nb_steps + 1);
+    cube V_reg(dm_state, dm_state, nb_steps + 1);
 
-    cube K(nb_udim, nb_xdim, nb_steps);
-    mat kff(nb_udim, nb_steps);
+    cube K(dm_act, dm_state, nb_steps);
+    mat kff(dm_act, nb_steps);
 
     int _diverge = 0;
 
@@ -134,13 +134,13 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
 
         V_reg.slice(i+1) = V.slice(i+1);
         if (reg==2)
-            V_reg.slice(i+1) += lmbda * eye(nb_xdim, nb_xdim);
+            V_reg.slice(i+1) += lmbda * eye(dm_state, dm_state);
 
         Qux_reg.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V_reg.slice(i+1) * B.slice(i)).t();
 
         Quu_reg.slice(i) = Cuu.slice(i) + B.slice(i).t() * V_reg.slice(i+1) * B.slice(i);
         if (reg==1)
-            Quu_reg.slice(i) += lmbda * eye(nb_udim, nb_udim);
+            Quu_reg.slice(i) += lmbda * eye(dm_act, dm_act);
 
         if (!(Quu_reg.slice(i)).is_sympd()) {
             _diverge = i;

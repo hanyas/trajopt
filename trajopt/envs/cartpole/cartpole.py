@@ -9,15 +9,15 @@ from autograd import jacobian
 class Cartpole(gym.Env):
 
     def __init__(self):
-        self.nb_xdim = 4
-        self.nb_udim = 1
+        self.dm_state = 4
+        self.dm_act = 1
 
         self._dt = 0.01
 
         self._x0 = np.array([0., np.pi, 0., 0.])
-        self._sigma_0 = 1.e-4 * np.eye(self.nb_xdim)
+        self._sigma_0 = 1.e-4 * np.eye(self.dm_state)
 
-        self._sigma = 1.e-4 * np.eye(self.nb_xdim)
+        self._sigma = 1.e-4 * np.eye(self.dm_state)
 
         # g = [x, th, dx, dth]
         self._g = np.array([0., 2. * np.pi, 0., 0.])

@@ -11,28 +11,28 @@ from copy import deepcopy
 
 
 class QuadraticStateValue:
-    def __init__(self, nb_xdim, nb_steps):
-        self.nb_xdim = nb_xdim
+    def __init__(self, dm_state, nb_steps):
+        self.dm_state = dm_state
         self.nb_steps = nb_steps
 
-        self.V = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.v = np.zeros((self.nb_xdim, self.nb_steps, ))
+        self.V = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.v = np.zeros((self.dm_state, self.nb_steps, ))
 
 
 class QuadraticCost:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
 
         self.nb_steps = nb_steps
 
-        self.Cxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.cx = np.zeros((self.nb_xdim, self.nb_steps))
+        self.Cxx = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.cx = np.zeros((self.dm_state, self.nb_steps))
 
-        self.Cuu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        self.cu = np.zeros((self.nb_udim, self.nb_steps))
+        self.Cuu = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
+        self.cu = np.zeros((self.dm_act, self.nb_steps))
 
-        self.Cxu = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
+        self.Cxu = np.zeros((self.dm_state, self.dm_act, self.nb_steps))
 
     @property
     def params(self):
@@ -44,8 +44,8 @@ class QuadraticCost:
 
 
 class AnalyticalQuadraticCost(QuadraticCost):
-    def __init__(self, f, nb_xdim, nb_udim, nb_steps):
-        super(AnalyticalQuadraticCost, self).__init__(nb_xdim, nb_udim, nb_steps)
+    def __init__(self, f, dm_state, dm_act, nb_steps):
+        super(AnalyticalQuadraticCost, self).__init__(dm_state, dm_act, nb_steps)
 
         self.f = f
 
@@ -62,7 +62,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
 
     def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
-        _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
+        _u = np.hstack((u, np.zeros((self.dm_act, 1))))
         _xref = deepcopy(x)
         for t in range(self.nb_steps):
             _in = tuple([x[..., t], _u[..., t], a[t], _xref[..., t]])
@@ -74,14 +74,14 @@ class AnalyticalQuadraticCost(QuadraticCost):
 
 
 class LinearDynamics:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
         self.nb_steps = nb_steps
 
-        self.A = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.B = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
-        self.c = np.zeros((self.nb_xdim, self.nb_steps))
+        self.A = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.B = np.zeros((self.dm_state, self.dm_act, self.nb_steps))
+        self.c = np.zeros((self.dm_state, self.nb_steps))
 
     @property
     def params(self):
@@ -96,8 +96,8 @@ class LinearDynamics:
 
 
 class AnalyticalLinearDynamics(LinearDynamics):
-    def __init__(self, f_init, f_dyn, nb_xdim, nb_udim, nb_steps):
-        super(AnalyticalLinearDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
+    def __init__(self, f_init, f_dyn, dm_state, dm_act, nb_steps):
+        super(AnalyticalLinearDynamics, self).__init__(dm_state, dm_act, nb_steps)
 
         self.i = f_init
         self.f = f_dyn
@@ -121,13 +121,13 @@ class AnalyticalLinearDynamics(LinearDynamics):
 
 
 class LinearControl:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
         self.nb_steps = nb_steps
 
-        self.K = np.zeros((self.nb_udim, self.nb_xdim, self.nb_steps))
-        self.kff = np.zeros((self.nb_udim, self.nb_steps))
+        self.K = np.zeros((self.dm_act, self.dm_state, self.nb_steps))
+        self.kff = np.zeros((self.dm_act, self.nb_steps))
 
     @property
     def params(self):

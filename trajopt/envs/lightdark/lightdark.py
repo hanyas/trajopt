@@ -15,10 +15,10 @@ import autograd.numpy as np
 class LightDark(gym.Env):
 
     def __init__(self):
-        self.nb_xdim = 2
-        self.nb_bdim = 2
-        self.nb_udim = 2
-        self.nb_zdim = 2
+        self.dm_state = 2
+        self.dm_belief = 2
+        self.dm_act = 2
+        self.dm_obs = 2
 
         self._dt = 1.
         self._g = np.array([0., 0.])
@@ -81,13 +81,13 @@ class LightDark(gym.Env):
     def dyn_noise(self, x=None, u=None):
         _x = np.clip(x, -self._xmax, self._xmax)
         _u = np.clip(u, -self._umax, self._umax)
-        return 1.e-8 * np.eye(self.nb_xdim)
+        return 1.e-8 * np.eye(self.dm_state)
 
     def observe(self, x):
         return x
 
     def obs_noise(self, x=None):
-        _sigma = 1e-4 * np.eye(self.nb_zdim)
+        _sigma = 1e-4 * np.eye(self.dm_obs)
         _sigma += np.array([[0.5 * (5. - x[0])**2, 0.],
                            [0., 0.]])
         return _sigma

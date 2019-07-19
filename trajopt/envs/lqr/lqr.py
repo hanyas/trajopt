@@ -8,8 +8,8 @@ import autograd.numpy as np
 class LQR(gym.Env):
 
     def __init__(self):
-        self.nb_xdim = 2
-        self.nb_udim = 1
+        self.dm_state = 2
+        self.dm_act = 1
 
         self._dt = 0.1
         self._g = np.array([10., 10.])

@@ -88,7 +88,7 @@ py::tuple backward_pass(array_tf _Q, array_tf _q,
                         array_tf _V, array_tf _X,
                         array_tf _Y, array_tf _Z,
                         double lmbda, int reg,
-                        int nb_bdim, int nb_udim, int nb_steps) {
+                        int dm_belief, int dm_act, int nb_steps) {
 
     // inputs
     cube Q = array_to_cube(_Q);
@@ -112,29 +112,29 @@ py::tuple backward_pass(array_tf _Q, array_tf _q,
     cube Z = array_to_cube(_Z);
 
     // outputs
-    cube C(nb_bdim, nb_bdim, nb_steps);
-    mat c(nb_bdim, nb_steps);
+    cube C(dm_belief, dm_belief, nb_steps);
+    mat c(dm_belief, nb_steps);
 
-    cube D(nb_udim, nb_udim, nb_steps);
-    mat d(nb_udim, nb_steps);
+    cube D(dm_act, dm_act, nb_steps);
+    mat d(dm_act, nb_steps);
 
-    cube E(nb_udim, nb_bdim, nb_steps);
-    mat e(nb_bdim * nb_bdim, nb_steps);
+    cube E(dm_act, dm_belief, nb_steps);
+    mat e(dm_belief * dm_belief, nb_steps);
 
-    cube Ereg(nb_udim, nb_bdim, nb_steps);
-    cube Dreg(nb_udim, nb_udim, nb_steps);
-    cube Dinv(nb_udim, nb_udim, nb_steps);
+    cube Ereg(dm_act, dm_belief, nb_steps);
+    cube Dreg(dm_act, dm_act, nb_steps);
+    cube Dinv(dm_act, dm_act, nb_steps);
 
-    cube S(nb_bdim, nb_bdim, nb_steps + 1);
-    mat s(nb_bdim, nb_steps + 1);
-    mat tau(nb_bdim * nb_bdim, nb_steps + 1);
+    cube S(dm_belief, dm_belief, nb_steps + 1);
+    mat s(dm_belief, nb_steps + 1);
+    mat tau(dm_belief * dm_belief, nb_steps + 1);
 
     vec dS(2);
 
-    cube Sreg(nb_bdim, nb_bdim, nb_steps + 1);
+    cube Sreg(dm_belief, dm_belief, nb_steps + 1);
 
-    cube K(nb_udim, nb_bdim, nb_steps);
-    mat kff(nb_udim, nb_steps);
+    cube K(dm_act, dm_belief, nb_steps);
+    mat kff(dm_act, nb_steps);
 
     int _diverge = 0;
 
@@ -159,13 +159,13 @@ py::tuple backward_pass(array_tf _Q, array_tf _q,
 
         Sreg.slice(i+1) = S.slice(i+1);
         if (reg==2)
-            Sreg.slice(i+1) += lmbda * eye(nb_bdim, nb_bdim);
+            Sreg.slice(i+1) += lmbda * eye(dm_belief, dm_belief);
 
         Ereg.slice(i) = (P.slice(i) + F.slice(i).t() * Sreg.slice(i+1) * G.slice(i)).t();
 
         Dreg.slice(i) = R.slice(i) + G.slice(i).t() * Sreg.slice(i+1) * G.slice(i);
         if (reg==1)
-            Dreg.slice(i) += lmbda * eye(nb_udim, nb_udim);
+            Dreg.slice(i) += lmbda * eye(dm_act, dm_act);
 
         if (!(Dreg.slice(i)).is_sympd()) {
             _diverge = i;

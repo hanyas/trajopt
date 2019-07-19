@@ -83,7 +83,7 @@ array_tf vec_to_array(vec m) {
 double kl_divergence(array_tf _K, array_tf _kff, array_tf _sigma_ctl,
                        array_tf _lK, array_tf _lkff, array_tf _lsigma_ctl,
                        array_tf _mu_x, array_tf _sigma_x,
-                       int nb_xdim, int nb_udim, int nb_steps) {
+                       int dm_state, int dm_act, int nb_steps) {
 
     cube K = array_to_cube(_K);
     mat kff = array_to_mat(_kff);
@@ -107,7 +107,7 @@ double kl_divergence(array_tf _K, array_tf _kff, array_tf _sigma_ctl,
 
         kl += as_scalar(0.5 * log( det(lsigma_ctl.slice(i)) / det(sigma_ctl.slice(i)) )
 		                + 0.5 * trace(lprec_ctl * sigma_ctl.slice(i))
-		                - 0.5 * nb_udim
+		                - 0.5 * dm_act
 		                + 0.5 * trace(diff_K * sigma_x.slice(i))
 		                + 0.5 * mu_x.col(i).t() * diff_K * mu_x.col(i)
 		                - mu_x.col(i).t() * diff_crs
@@ -133,7 +133,7 @@ double quad_expectation(array_tf _mu, array_tf _sigma_s,
 py::tuple augment_cost(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
                        array_tf _cu, array_tf _Cxu, array_tf _c0,
                        array_tf _K, array_tf _kff, array_tf _sigma_ctl,
-                       double alpha, int nb_xdim, int nb_udim, int nb_steps) {
+                       double alpha, int dm_state, int dm_act, int nb_steps) {
 
     // inputs
     cube Cxx = array_to_cube(_Cxx);
@@ -148,11 +148,11 @@ py::tuple augment_cost(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     cube sigma_ctl = array_to_cube(_sigma_ctl);
 
     // outputs
-    cube agCxx(nb_xdim, nb_xdim, nb_steps + 1);
-    mat agcx(nb_xdim, nb_steps + 1);
-    cube agCuu(nb_udim, nb_udim, nb_steps + 1);
-    mat agcu(nb_udim, nb_steps + 1);
-    cube agCxu(nb_xdim, nb_udim, nb_steps + 1);
+    cube agCxx(dm_state, dm_state, nb_steps + 1);
+    mat agcx(dm_state, nb_steps + 1);
+    cube agCuu(dm_act, dm_act, nb_steps + 1);
+    mat agcu(dm_act, nb_steps + 1);
+    cube agCxu(dm_state, dm_act, nb_steps + 1);
     vec agc0(nb_steps + 1);
 
     for (int i = 0; i < nb_steps; i++) {
@@ -190,7 +190,7 @@ py::tuple augment_cost(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
 py::tuple forward_pass(array_tf _mu_x0, array_tf _sigma_x0,
                        array_tf _A, array_tf _B, array_tf _c, array_tf _sigma_dyn,
                        array_tf _K, array_tf _kff, array_tf _sigma_ctl,
-                       int nb_xdim, int nb_udim, int nb_steps) {
+                       int dm_state, int dm_act, int nb_steps) {
 
     // inputs
     vec mu_x0 = array_to_vec(_mu_x0);
@@ -206,14 +206,14 @@ py::tuple forward_pass(array_tf _mu_x0, array_tf _sigma_x0,
     cube sigma_ctl = array_to_cube(_sigma_ctl);
 
     // outputs
-    mat mu_x(nb_xdim, nb_steps + 1);
-    cube sigma_x(nb_xdim, nb_xdim, nb_steps + 1);
+    mat mu_x(dm_state, nb_steps + 1);
+    cube sigma_x(dm_state, dm_state, nb_steps + 1);
 
-    mat mu_u(nb_udim, nb_steps);
-    cube sigma_u(nb_udim, nb_udim, nb_steps);
+    mat mu_u(dm_act, nb_steps);
+    cube sigma_u(dm_act, dm_act, nb_steps);
 
-    mat mu_xu(nb_xdim + nb_udim, nb_steps + 1);
-    cube sigma_xu(nb_xdim + nb_udim, nb_xdim + nb_udim, nb_steps + 1);
+    mat mu_xu(dm_state + dm_act, nb_steps + 1);
+    cube sigma_xu(dm_state + dm_act, dm_state + dm_act, nb_steps + 1);
 
     mu_x.col(0) = mu_x0;
     sigma_x.slice(0) = sigma_x0;
@@ -246,8 +246,8 @@ py::tuple forward_pass(array_tf _mu_x0, array_tf _sigma_x0,
         mu_x.col(i+1) = join_horiz(A.slice(i), B.slice(i)) * mu_xu.col(i) + c.col(i);
 
         if(i == nb_steps - 1) {
-            mu_xu.col(i+1) = join_vert(mu_x.col(i+1), zeros<vec>(nb_udim));
-            sigma_xu.slice(i+1).submat(0, 0, nb_xdim - 1, nb_xdim - 1) = sigma_x.slice(i+1);
+            mu_xu.col(i+1) = join_vert(mu_x.col(i+1), zeros<vec>(dm_act));
+            sigma_xu.slice(i+1).submat(0, 0, dm_state - 1, dm_state - 1) = sigma_x.slice(i+1);
         }
     }
 
@@ -267,7 +267,7 @@ py::tuple forward_pass(array_tf _mu_x0, array_tf _sigma_x0,
 py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
                         array_tf _cu, array_tf _Cxu, array_tf _c0,
                         array_tf _A, array_tf _B, array_tf _c, array_tf _sigma_dyn,
-                        double alpha, int nb_xdim, int nb_udim, int nb_steps) {
+                        double alpha, int dm_state, int dm_act, int nb_steps) {
 
     // inputs
     cube Cxx = array_to_cube(_Cxx);
@@ -283,26 +283,26 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     cube sigma_dyn = array_to_cube(_sigma_dyn);
 
     // outputs
-    cube Q(nb_xdim + nb_udim, nb_xdim + nb_udim, nb_steps);
-    cube Qxx(nb_xdim, nb_xdim, nb_steps);
-    cube Qux(nb_udim, nb_xdim, nb_steps);
-    cube Quu(nb_udim, nb_udim, nb_steps);
-    cube Quu_inv(nb_udim, nb_udim, nb_steps);
-    mat qx(nb_xdim, nb_steps);
-    mat qu(nb_udim, nb_steps);
+    cube Q(dm_state + dm_act, dm_state + dm_act, nb_steps);
+    cube Qxx(dm_state, dm_state, nb_steps);
+    cube Qux(dm_act, dm_state, nb_steps);
+    cube Quu(dm_act, dm_act, nb_steps);
+    cube Quu_inv(dm_act, dm_act, nb_steps);
+    mat qx(dm_state, nb_steps);
+    mat qu(dm_act, nb_steps);
     vec q0(nb_steps);
     vec q0_common(nb_steps);
     vec q0_softmax(nb_steps);
 
-    cube V(nb_xdim, nb_xdim, nb_steps + 1);
-    mat v(nb_xdim, nb_steps + 1);
+    cube V(dm_state, dm_state, nb_steps + 1);
+    mat v(dm_state, nb_steps + 1);
     vec v0(nb_steps + 1);
     vec v0_softmax(nb_steps + 1);
 
-    cube K(nb_udim, nb_xdim, nb_steps);
-    mat kff(nb_udim, nb_steps);
-    cube sigma_ctl(nb_udim, nb_udim, nb_steps);
-    cube prec_ctl(nb_udim, nb_udim, nb_steps);
+    cube K(dm_act, dm_state, nb_steps);
+    mat kff(dm_act, nb_steps);
+    cube sigma_ctl(dm_act, dm_act, nb_steps);
+    cube prec_ctl(dm_act, dm_act, nb_steps);
 
     int _diverge = 0;
 
@@ -345,9 +345,9 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
         V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
 
         v.col(i) = (qx.col(i) + 2. * Qux.slice(i).t() * kff.col(i)) * alpha;
-        v0(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * nb_udim));
+        v0(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * dm_act));
         v0_softmax(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0_softmax(i)
-                         + 0.5 * (nb_udim * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
+                         + 0.5 * (dm_act * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
 	}
 
     // transform outputs to numpy

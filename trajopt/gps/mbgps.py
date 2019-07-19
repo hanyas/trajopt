@@ -35,8 +35,8 @@ class MBGPS:
 
         self.ulim = self.env.action_space.high
 
-        self.nb_xdim = self.env.observation_space.shape[0]
-        self.nb_udim = self.env.action_space.shape[0]
+        self.dm_state = self.env.observation_space.shape[0]
+        self.dm_act = self.env.action_space.shape[0]
         self.nb_steps = nb_steps
 
         # total kl over traj.
@@ -51,33 +51,33 @@ class MBGPS:
         self.alpha = np.array([-100.])
 
         # create state distribution and initialize first time step
-        self.xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
+        self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
         self.xdist.mu[..., 0], self.xdist.sigma[..., 0] = self.env_init()
 
-        self.udist = Gaussian(self.nb_udim, self.nb_steps)
-        self.xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
+        self.udist = Gaussian(self.dm_act, self.nb_steps)
+        self.xudist = Gaussian(self.dm_state + self.dm_act, self.nb_steps + 1)
 
-        self.vfunc = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
-        self.qfunc = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
+        self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
+        self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
         self.dyn = AnalyticalLinearGaussianDynamics(self.env_init, self.env_dyn, self.env_noise,
-                                                    self.nb_xdim, self.nb_udim, self.nb_steps)
-        self.ctl = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps, init_ctl_sigma)
-        self.ctl.kff = 1e-2 * np.random.randn(self.nb_udim, self.nb_steps)
+                                                    self.dm_state, self.dm_act, self.nb_steps)
+        self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_ctl_sigma)
+        self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
 
         # activation of cost function
         self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
         self.activation[-1] = 1.  # last step always in
         self.activation[activation] = 1.
 
-        self.cost = AnalyticalQuadraticCost(self.env_cost, self.nb_xdim, self.nb_udim, self.nb_steps + 1)
+        self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
         self.last_return = - np.inf
 
     def sample(self, nb_episodes, stoch=True):
-        data = {'x': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
-                'u': np.zeros((self.nb_udim, self.nb_steps, nb_episodes)),
-                'xn': np.zeros((self.nb_xdim, self.nb_steps, nb_episodes)),
+        data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
+                'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
+                'xn': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
                 'c': np.zeros((self.nb_steps + 1, nb_episodes))}
 
         for n in range(nb_episodes):
@@ -95,7 +95,7 @@ class MBGPS:
                 x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
-            c = self.cost.evalf(x, np.zeros((self.nb_udim, )), self.activation[-1])
+            c = self.cost.evalf(x, np.zeros((self.dm_act, )), self.activation[-1])
             data['c'][-1, n] = c
 
         return data
@@ -106,8 +106,8 @@ class MBGPS:
         :param lgc:
         :return:
         """
-        xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
-        udist = Gaussian(self.nb_udim, self.nb_steps)
+        xdist = Gaussian(self.dm_state, self.nb_steps + 1)
+        udist = Gaussian(self.dm_act, self.nb_steps)
         cost = np.zeros((self.nb_steps + 1, ))
 
         xdist.mu[..., 0], xdist.sigma[..., 0] = self.dyn.evali()
@@ -116,7 +116,7 @@ class MBGPS:
             cost[..., t] = self.cost.evalf(xdist.mu[..., t], udist.mu[..., t], self.activation[t])
             xdist.mu[..., t + 1], xdist.sigma[..., t + 1] = self.dyn.forward(xdist, udist, lgc, t)
 
-        cost[..., -1] = self.cost.evalf(xdist.mu[..., -1], np.zeros((self.nb_udim, )), self.activation[-1])
+        cost[..., -1] = self.cost.evalf(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
         return xdist, udist, cost
 
     def forward_pass(self, lgc):
@@ -125,22 +125,22 @@ class MBGPS:
         :param lgc:
         :return:
         """
-        xdist = Gaussian(self.nb_xdim, self.nb_steps + 1)
-        udist = Gaussian(self.nb_udim, self.nb_steps)
-        xudist = Gaussian(self.nb_xdim + self.nb_udim, self.nb_steps + 1)
+        xdist = Gaussian(self.dm_state, self.nb_steps + 1)
+        udist = Gaussian(self.dm_act, self.nb_steps)
+        xudist = Gaussian(self.dm_state + self.dm_act, self.nb_steps + 1)
 
         xdist.mu, xdist.sigma,\
         udist.mu, udist.sigma,\
         xudist.mu, xudist.sigma = forward_pass(self.xdist.mu[..., 0], self.xdist.sigma[..., 0],
                                                self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
                                                lgc.K, lgc.kff, lgc.sigma,
-                                               self.nb_xdim, self.nb_udim, self.nb_steps)
+                                               self.dm_state, self.dm_act, self.nb_steps)
         return xdist, udist, xudist
 
     def backward_pass(self, alpha, agcost):
-        lgc = LinearGaussianControl(self.nb_xdim, self.nb_udim, self.nb_steps)
-        xvalue = QuadraticStateValue(self.nb_xdim, self.nb_steps + 1)
-        xuvalue = QuadraticStateActionValue(self.nb_xdim, self.nb_udim, self.nb_steps)
+        lgc = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps)
+        xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
+        xuvalue = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
         xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
         xuvalue.qx, xuvalue.qu, xuvalue.q0, xuvalue.q0_softmax,\
@@ -148,16 +148,16 @@ class MBGPS:
         lgc.K, lgc.kff, lgc.sigma, diverge = backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
                                                            agcost.cu, agcost.Cxu, agcost.c0,
                                                            self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
-                                                           alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
+                                                           alpha, self.dm_state, self.dm_act, self.nb_steps)
         return lgc, xvalue, xuvalue, diverge
 
     def augment_cost(self, alpha):
-        agcost = QuadraticCost(self.nb_xdim, self.nb_udim, self.nb_steps + 1)
+        agcost = QuadraticCost(self.dm_state, self.dm_act, self.nb_steps + 1)
         agcost.Cxx, agcost.cx, agcost.Cuu,\
         agcost.cu, agcost.Cxu, agcost.c0 = augment_cost(self.cost.Cxx, self.cost.cx, self.cost.Cuu,
                                                         self.cost.cu, self.cost.Cxu, self.cost.c0,
                                                         self.ctl.K, self.ctl.kff, self.ctl.sigma,
-                                                        alpha, self.nb_xdim, self.nb_udim, self.nb_steps)
+                                                        alpha, self.dm_state, self.dm_act, self.nb_steps)
         return agcost
 
     def dual(self, alpha):
@@ -185,7 +185,7 @@ class MBGPS:
         return kl_divergence(lgc.K, lgc.kff, lgc.sigma,
                              self.ctl.K, self.ctl.kff, self.ctl.sigma,
                              xdist.mu, xdist.sigma,
-                             self.nb_xdim, self.nb_udim, self.nb_steps)
+                             self.dm_state, self.dm_act, self.nb_steps)
 
     def plot(self):
         import matplotlib.pyplot as plt
@@ -193,16 +193,16 @@ class MBGPS:
         plt.figure()
 
         t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-        for k in range(self.nb_xdim):
-            plt.subplot(self.nb_xdim + self.nb_udim, 1, k + 1)
+        for k in range(self.dm_state):
+            plt.subplot(self.dm_state + self.dm_act, 1, k + 1)
             plt.plot(t, self.xdist.mu[k, :], '-b')
             lb = self.xdist.mu[k, :] - 2. * np.sqrt(self.xdist.sigma[k, k, :])
             ub = self.xdist.mu[k, :] + 2. * np.sqrt(self.xdist.sigma[k, k, :])
             plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
-        for k in range(self.nb_udim):
-            plt.subplot(self.nb_xdim + self.nb_udim, 1, self.nb_xdim + k + 1)
+        for k in range(self.dm_act):
+            plt.subplot(self.dm_state + self.dm_act, 1, self.dm_state + k + 1)
             plt.plot(t, self.udist.mu[k, :], '-g')
             lb = self.udist.mu[k, :] - 2. * np.sqrt(self.udist.sigma[k, k, :])
             ub = self.udist.mu[k, :] + 2. * np.sqrt(self.udist.sigma[k, k, :])

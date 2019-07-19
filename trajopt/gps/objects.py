@@ -33,28 +33,28 @@ class Gaussian:
 
 
 class QuadraticStateValue:
-    def __init__(self, nb_xdim, nb_steps):
-        self.nb_xdim = nb_xdim
+    def __init__(self, dm_state, nb_steps):
+        self.dm_state = dm_state
         self.nb_steps = nb_steps
 
-        self.V = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.v = np.zeros((self.nb_xdim, self.nb_steps, ))
+        self.V = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.v = np.zeros((self.dm_state, self.nb_steps, ))
         self.v0 = np.zeros((self.nb_steps, ))
         self.v0_softmax = np.zeros((self.nb_steps, ))
 
 
 class QuadraticStateActionValue:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
         self.nb_steps = nb_steps
 
-        self.Qxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.Quu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        self.Qux = np.zeros((self.nb_udim, self.nb_xdim, self.nb_steps))
+        self.Qxx = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.Quu = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
+        self.Qux = np.zeros((self.dm_act, self.dm_state, self.nb_steps))
 
-        self.qx = np.zeros((self.nb_xdim, self.nb_steps, ))
-        self.qu = np.zeros((self.nb_udim, self.nb_steps, ))
+        self.qx = np.zeros((self.dm_state, self.nb_steps, ))
+        self.qu = np.zeros((self.dm_act, self.nb_steps, ))
 
         self.q0 = np.zeros((self.nb_steps, ))
         self.q0_common = np.zeros((self.nb_steps, ))
@@ -62,19 +62,19 @@ class QuadraticStateActionValue:
 
 
 class QuadraticCost:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
 
         self.nb_steps = nb_steps
 
-        self.Cxx = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.cx = np.zeros((self.nb_xdim, self.nb_steps))
+        self.Cxx = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.cx = np.zeros((self.dm_state, self.nb_steps))
 
-        self.Cuu = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
-        self.cu = np.zeros((self.nb_udim, self.nb_steps))
+        self.Cuu = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
+        self.cu = np.zeros((self.dm_act, self.nb_steps))
 
-        self.Cxu = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
+        self.Cxu = np.zeros((self.dm_state, self.dm_act, self.nb_steps))
         self.c0 = np.zeros((self.nb_steps, ))
 
     @property
@@ -87,7 +87,7 @@ class QuadraticCost:
 
     def evaluate(self, x, u):
         _ret = 0.
-        _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
+        _u = np.hstack((u, np.zeros((self.dm_act, 1))))
         for t in range(self.nb_steps):
             _ret += x[..., t].T @ self.Cxx[..., t] @ x[..., t] +\
                     _u[..., t].T @ self.Cuu[..., t] @ _u[..., t] +\
@@ -97,8 +97,8 @@ class QuadraticCost:
         return _ret
 
 class AnalyticalQuadraticCost(QuadraticCost):
-    def __init__(self, f, nb_xdim, nb_udim, nb_steps):
-        super(AnalyticalQuadraticCost, self).__init__(nb_xdim, nb_udim, nb_steps)
+    def __init__(self, f, dm_state, dm_act, nb_steps):
+        super(AnalyticalQuadraticCost, self).__init__(dm_state, dm_act, nb_steps)
 
         self.f = f
 
@@ -115,7 +115,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
 
     def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
-        _u = np.hstack((u, np.zeros((self.nb_udim, 1))))
+        _u = np.hstack((u, np.zeros((self.dm_act, 1))))
         _xref = deepcopy(x)
         for t in range(self.nb_steps):
             _in = tuple([x[..., t], _u[..., t], a[t], _xref[..., t]])
@@ -136,17 +136,17 @@ class AnalyticalQuadraticCost(QuadraticCost):
 
 
 class LinearGaussianDynamics:
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
         self.nb_steps = nb_steps
 
-        self.A = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
-        self.B = np.zeros((self.nb_xdim, self.nb_udim, self.nb_steps))
-        self.c = np.zeros((self.nb_xdim, self.nb_steps))
-        self.sigma = np.zeros((self.nb_xdim, self.nb_xdim, self.nb_steps))
+        self.A = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.B = np.zeros((self.dm_state, self.dm_act, self.nb_steps))
+        self.c = np.zeros((self.dm_state, self.nb_steps))
+        self.sigma = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
         for t in range(self.nb_steps):
-            self.sigma[..., t] = 1e-8 * np.eye(self.nb_xdim)
+            self.sigma[..., t] = 1e-8 * np.eye(self.dm_state)
 
     @property
     def params(self):
@@ -161,8 +161,8 @@ class LinearGaussianDynamics:
 
 
 class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
-    def __init__(self, f_init, f_dyn, noise, nb_xdim, nb_udim, nb_steps):
-        super(AnalyticalLinearGaussianDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
+    def __init__(self, f_init, f_dyn, noise, dm_state, dm_act, nb_steps):
+        super(AnalyticalLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
 
         self.i = f_init
         self.f = f_dyn
@@ -208,16 +208,16 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
 
 
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
-    def __init__(self, nb_xdim, nb_udim, nb_steps):
-        super(LearnedLinearGaussianDynamics, self).__init__(nb_xdim, nb_udim, nb_steps)
+    def __init__(self, dm_state, dm_act, nb_steps):
+        super(LearnedLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
 
     def learn(self, data, pointwise=False):
         if pointwise:
             from mimo import distributions
-            _hypparams = dict(M=np.zeros((self.nb_xdim, self.nb_xdim + self.nb_udim + 1)),
-                              V=1.e6 * np.eye(self.nb_xdim + self.nb_udim + 1),
+            _hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
+                              V=1.e6 * np.eye(self.dm_state + self.dm_act + 1),
                               affine=True,
-                              psi=np.eye(self.nb_xdim), nu=self.nb_xdim + 2)
+                              psi=np.eye(self.dm_state), nu=self.dm_state + 2)
             _prior = distributions.MatrixNormalInverseWishart(**_hypparams)
 
             for t in range(self.nb_steps):
@@ -226,8 +226,8 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
                 _model = distributions.BayesianLinearGaussian(_prior)
                 _model = _model.MAP(_data)
 
-                self.A[..., t] = _model.A[:, :self.nb_xdim]
-                self.B[..., t] = _model.A[:, self.nb_xdim:self.nb_xdim + self.nb_udim]
+                self.A[..., t] = _model.A[:, :self.dm_state]
+                self.B[..., t] = _model.A[:, self.dm_state:self.dm_state + self.dm_act]
                 self.c[..., t] = _model.A[:, -1]
                 self.sigma[..., t] = _model.sigma
         else:
@@ -235,7 +235,7 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
             _input = [data['u'][..., n].T for n in range(data['u'].shape[-1])]
 
             from sds.rarhmm_ls import rARHMM
-            rarhmm = rARHMM(nb_states=5, dim_obs=self.nb_xdim, dim_act=self.nb_udim)
+            rarhmm = rARHMM(nb_states=5, dim_obs=self.dm_state, dim_act=self.dm_act)
             rarhmm.initialize(_obs, _input)
             rarhmm.em(_obs, _input, nb_iter=50, prec=1e-12, verbose=False)
 
@@ -250,17 +250,17 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
 
 
 class LinearGaussianControl:
-    def __init__(self, nb_xdim, nb_udim, nb_steps, init_ctl_sigma=1.):
-        self.nb_xdim = nb_xdim
-        self.nb_udim = nb_udim
+    def __init__(self, dm_state, dm_act, nb_steps, init_ctl_sigma=1.):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
         self.nb_steps = nb_steps
 
-        self.K = np.zeros((self.nb_udim, self.nb_xdim, self.nb_steps))
-        self.kff = np.zeros((self.nb_udim, self.nb_steps))
+        self.K = np.zeros((self.dm_act, self.dm_state, self.nb_steps))
+        self.kff = np.zeros((self.dm_act, self.nb_steps))
 
-        self.sigma = np.zeros((self.nb_udim, self.nb_udim, self.nb_steps))
+        self.sigma = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
         for t in range(self.nb_steps):
-            self.sigma[..., t] = init_ctl_sigma * np.eye(self.nb_udim)
+            self.sigma[..., t] = init_ctl_sigma * np.eye(self.dm_act)
 
     @property
     def params(self):
