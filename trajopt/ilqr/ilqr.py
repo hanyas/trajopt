@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: ilqr
-# @Date: 2019-06-23-14-00
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
 import autograd.numpy as np
 
 from trajopt.ilqr.objects import AnalyticalLinearDynamics, AnalyticalQuadraticCost
@@ -81,13 +74,14 @@ class iLQR:
         action = np.zeros((self.dm_act, self.nb_steps))
         cost = np.zeros((self.nb_steps + 1, ))
 
-        state[..., 0], _ = self.dyn.evali()
+        state[..., 0] = self.env.reset()
         for t in range(self.nb_steps):
-            action[..., t] = ctl.action(state, alpha, self.xref, self.uref, t)
-            cost[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
-            state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
+            _act = ctl.action(state, alpha, self.xref, self.uref, t)
+            action[..., t] = np.clip(_act, -self.ulim, self.ulim)
+            cost[..., t] = self.env.unwrapped.cost(state[..., t], action[..., t], self.activation[t])
+            state[..., t + 1], _, _, _ = self.env.step(action[..., t])
 
-        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
+        cost[..., -1] = self.env.env.cost(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
         return state, action, cost
 
     def backward_pass(self):

@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: gps.py
-# @Date: 2019-06-06-08-56
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
 import autograd.numpy as np
 
 import scipy as sc
@@ -45,8 +38,8 @@ class MBGPS:
 
         # kl mult.
         self.kl_mult = 1.
-        self.kl_mult_min = 0.1
-        self.kl_mult_max = 5.0
+        self.kl_mult_min = 1.0  # 0.1
+        self.kl_mult_max = 1.0  # 5.0
 
         self.alpha = np.array([-100.])
 
@@ -101,11 +94,6 @@ class MBGPS:
         return data
 
     def extended_kalman(self, lgc):
-        """
-        Forward pass on actual dynamics
-        :param lgc:
-        :return:
-        """
         xdist = Gaussian(self.dm_state, self.nb_steps + 1)
         udist = Gaussian(self.dm_act, self.nb_steps)
         cost = np.zeros((self.nb_steps + 1, ))
@@ -120,11 +108,6 @@ class MBGPS:
         return xdist, udist, cost
 
     def forward_pass(self, lgc):
-        """
-        Forward pass on linearized system
-        :param lgc:
-        :return:
-        """
         xdist = Gaussian(self.dm_state, self.nb_steps + 1)
         udist = Gaussian(self.dm_act, self.nb_steps)
         xudist = Gaussian(self.dm_state + self.dm_act, self.nb_steps + 1)
@@ -228,8 +211,8 @@ class MBGPS:
                                        method='L-BFGS-B',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
-                                       options={'disp': False, 'maxiter': 1000,
-                                                'ftol': 1e-10})
+                                       options={'disp': False, 'maxiter': 250,
+                                                'ftol': 1e-4})
             self.alpha = res.x
 
             # re-compute after opt.
