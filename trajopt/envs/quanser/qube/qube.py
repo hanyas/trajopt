@@ -1,5 +1,6 @@
 import autograd.numpy as np
 from autograd import jacobian
+from autograd.tracer import getval
 
 from trajopt.envs.quanser.common import VelocityFilter
 from trajopt.envs.quanser.qube.base import QubeBase, QubeDynamics
@@ -146,11 +147,10 @@ class QubeTO(QubeBase):
     def noise(self, x=None, u=None):
         return self._sigma
 
-    # xref is a hack to avoid autograd diffing through the jacobian
-    def cost(self, x, u, a, xref):
+    def cost(self, x, u, a):
         if a:
-            _J, _j = self.features_jacobian(xref)
-            _x = _J(xref) @ x + _j
+            _J, _j = self.features_jacobian(getval(x))
+            _x = _J(getval(x)) @ x + _j
             return (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
         else:
             return u.T @ np.diag(self._uw) @ u

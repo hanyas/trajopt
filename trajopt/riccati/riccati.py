@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: ilqr
-# @Date: 2019-06-23-14-00
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
 import autograd.numpy as np
 
 from trajopt.riccati.objects import AnalyticalLinearDynamics, AnalyticalQuadraticCost

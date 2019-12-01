@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: objects.py
-# @Date: 2019-06-22-15-01
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
 import autograd.numpy as np
 from autograd import jacobian, hessian
 from copy import deepcopy
@@ -57,15 +50,13 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdu = jacobian(self.f, 1)
 
     def evalf(self, x, u, a):
-        _xref = deepcopy(x)
-        return self.f(x, u, a, _xref)
+        return self.f(x, u, a)
 
     def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
-        _xref = deepcopy(x)
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t], a[t], _xref[..., t]])
+            _in = tuple([x[..., t], _u[..., t], a[t]])
             self.Cxx[..., t] = self.dcdxx(*_in)
             self.Cuu[..., t] = self.dcduu(*_in)
             self.Cxu[..., t] = self.dcdxu(*_in)

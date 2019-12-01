@@ -4,6 +4,7 @@ from gym.utils import seeding
 
 import autograd.numpy as np
 from autograd import jacobian
+from autograd.tracer import getval
 
 
 class Pendulum(gym.Env):
@@ -12,31 +13,32 @@ class Pendulum(gym.Env):
         self.dm_state = 2
         self.dm_act = 1
 
-        self._dt = 0.025
+        self._dt = 0.01
 
-        # damping
-        self._k = 1.e-3
-
-        self._x0 = np.array([np.pi, 0.])
-        self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
-
-        self._sigma = 1.e-4 * np.eye(self.dm_state)
+        self._sigma = 1.e-8 * np.eye(self.dm_state)
 
         # g = [th, thd]
         self._g = np.array([2. * np.pi, 0.])
-        self._gw = np.array([1.e1, 1.e-1])
+        self._gw = np.array([1.e0, 1.e-1])
 
         # x = [th, thd]
-        self._xmax = np.array([np.inf, 25.0])
+        self._xmax = np.array([np.inf, 8.0])
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
         self._uw = np.array([1.e-3])
-        self._umax = 2.0
+        self._umax = 2.5
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
+        self.state = None
+        self.np_random = None
+
         self.seed()
+
+        _high, _low = np.array([0., -8.0]), np.array([2. * np.pi, 8.0])
+        self._x0 = self.np_random.uniform(low=_low, high=_high)
+        self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
 
     @property
     def xlim(self):
@@ -61,13 +63,12 @@ class Pendulum(gym.Env):
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
 
-        g, m, l = 9.80665, 1., 1.
+        g, m, l, k = 10., 1., 1., 1.e-3
 
         def f(x, u):
             th, dth = x
             return np.hstack((dth, 3. * g / (2. * l) * np.sin(th) +
-                              3. / (m * l ** 2) * (u - self._k * dth)))
-            # return np.hstack((dth, g * l * m * np.sin(th) + u - self._k * dth))
+                              3. / (m * l ** 2) * (u - k * dth)))
 
         k1 = f(x, u)
         k2 = f(x + 0.5 * self.dt * k1, u)
@@ -82,13 +83,12 @@ class Pendulum(gym.Env):
     def inverse_dynamics(self, x, u):
         _u = np.clip(u, -self._umax, self._umax)
 
-        g, m, l = 9.80665, 1., 1.
+        g, m, l, k = 10., 1., 1., 1.e-3
 
         def f(x, u):
             th, dth = x
             return np.hstack((dth, 3. * g / (2. * l) * np.sin(th) +
-                              3. / (m * l ** 2) * (u - self._k * dth)))
-            # return np.hstack((dth, g * l * m * np.sin(th) + u - self._k * dth))
+                              3. / (m * l ** 2) * (u - k * dth)))
 
         k1 = f(x, _u)
         k2 = f(x - 0.5 * self.dt * k1, _u)
@@ -113,11 +113,10 @@ class Pendulum(gym.Env):
         _x = np.clip(x, -self._xmax, self._xmax)
         return self._sigma
 
-    # xref is a hack to avoid autograd diffing through the jacobian
-    def cost(self, x, u, a, xref):
+    def cost(self, x, u, a):
         if a:
-            _J, _j = self.features_jacobian(xref)
-            _x = _J(xref) @ x + _j
+            _J, _j = self.features_jacobian(getval(x))
+            _x = _J(getval(x)) @ x + _j
             return (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
         else:
             return u.T @ np.diag(self._uw) @ u
@@ -163,7 +162,7 @@ class PendulumWithCartesianObservation(Pendulum):
         self._x0 = np.array([-1., 0., 0.])
         self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
 
-        self._sigma = 1.e-4 * np.eye(self.dm_state)
+        self._sigma = 1.e-8 * np.eye(self.dm_state)
 
         # g = [cs_th, sn_th, dth]
         self._g = np.array([1., 0., 0.])
@@ -177,7 +176,7 @@ class PendulumWithCartesianObservation(Pendulum):
     def dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
 
-        g, m, l = 9.80665, 1., 1.
+        g, m, l, k = 10., 1., 1., 1.e-3
 
         # transfer to th/thd space
         cth, sth, dth = x
@@ -186,7 +185,7 @@ class PendulumWithCartesianObservation(Pendulum):
         def f(x, u):
             th, dth = x
             return np.hstack((dth, 3. * g / (2. * l) * np.sin(th) +
-                              3. / (m * l ** 2) * (u - self._k * dth)))
+                              3. / (m * l ** 2) * (u - k * dth)))
 
         k1 = f(_x, u)
         k2 = f(_x + 0.5 * self.dt * k1, u)
@@ -202,7 +201,7 @@ class PendulumWithCartesianObservation(Pendulum):
     def inverse_dynamics(self, x, u):
         u = np.clip(u, -self._umax, self._umax)
 
-        g, m, l = 9.80665, 1., 1.
+        g, m, l, k = 10., 1., 1., 1.e-3
 
         # transfer to th/thd space
         sth, cth, dth = x
@@ -211,7 +210,7 @@ class PendulumWithCartesianObservation(Pendulum):
         def f(x, u):
             th, dth = x
             return np.hstack((dth, -3. * g / (2. * l) * np.sin(th + np.pi) +
-                              3. / (m * l ** 2) * (u - self._k * dth)))
+                              3. / (m * l ** 2) * (u - k * dth)))
 
         k1 = f(_x, u)
         k2 = f(_x - 0.5 * self.dt * k1, u)
