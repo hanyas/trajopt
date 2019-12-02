@@ -1,28 +1,18 @@
-- Prequisits: CMake.
+- Prequisits: CMake, libpthread, libgfortran.
 
-- Optional: For OpenBLAS: libpthread, libgfortran.
-
-- Install pybind11:
+- Compile pybind11:
     * https://github.com/pybind/pybind11
-    * https://pybind11.readthedocs.io/en/master/basics.html 
-    * Edit CMakeLists.txt to reflect the paths to pybind11
-
-- Download Armadillo:
-    * http://arma.sourceforge.net/download.html
-
-- ### Using Aramdillo:
-   * Extract Armadillo to ~/libs
-   * Configure and make Aramdillo:<br/>
-   ```shell
-   ./configure
-    cmake .
-    make
+    * https://pybind11.readthedocs.io/en/master/basics.html
+    ```shell
+    mkdir build
+    cd build
+    cmake ..
+    make check -j 4
     ```
-    * Edit CMakeLists.txt to reflect the paths of Armadillo
+    * Edit local CMakeLists.txt to reflect the path to pybind11
 
-- ### Using OpenBLAS:
-   * https://github.com/xianyi/OpenBLAS.git
-   * Make OpenBLAS
+- Compile OpenBLAS:
+    * https://github.com/xianyi/OpenBLAS.git
    ```shell
    USE_THREAD=1 NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
    ```     
@@ -30,8 +20,15 @@
    ```shell
    USE_THREAD=0 NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
    ```     
-   * Configure Armadillo, no need to make:<br/>
+
+- Compile Armadillo:
+    * http://arma.sourceforge.net/download.html
+    * Compile Armadillo with our OpenBLAS
     ```shell
     ./configure
+    ccmake .
+    # set OpenBLAS path to our previously compiled library
+    # configure, generate and exit
+    make -j 4
     ```
-   * Edit CMakeLists.txt to reflect the paths of Armadillo and OpenBLAS
+    * Edit local CMakeLists.txt to reflect the path of Armadillo
