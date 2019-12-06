@@ -15,11 +15,11 @@ class Pendulum(gym.Env):
 
         self._dt = 0.01
 
-        self._sigma = 1.e-8 * np.eye(self.dm_state)
+        self._sigma = 1e-4 * np.eye(self.dm_state)
 
         # g = [th, thd]
         self._g = np.array([2. * np.pi, 0.])
-        self._gw = np.array([1.e0, 1.e-1])
+        self._gw = np.array([1e0, 1e-1])
 
         # x = [th, thd]
         self._xmax = np.array([np.inf, 8.0])
@@ -36,7 +36,7 @@ class Pendulum(gym.Env):
 
         self.seed()
 
-        _high, _low = np.array([0., -8.0]), np.array([2. * np.pi, 8.0])
+        _low, _high = np.array([np.pi - np.pi / 18., -1.0]), np.array([np.pi + np.pi / 18., 1.0])
         self._x0 = self.np_random.uniform(low=_low, high=_high)
         self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
 

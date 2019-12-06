@@ -25,12 +25,12 @@ class Cartpole(gym.Env):
         self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
 
         # x = [x, th, dx, dth]
-        self._xmax = np.array([0., np.inf, 25., 25.])
+        self._xmax = np.array([10., np.inf, 25., 25.])
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
         self._uw = np.array([1.e-3])
-        self._umax = 5.0
+        self._umax = 10.0
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
@@ -77,10 +77,10 @@ class Cartpole(gym.Env):
         th_acc = _num / _denom
         x_acc = (Mp * l * sth * dth2 - Mp * l * th_acc * cth + _u) / Mt
 
-        xn = np.hstack((x[0] + self._dt * (x[2] + self._dt * x_acc),
-                       x[1] + self._dt * (x[3] + self._dt * th_acc),
-                       x[2] + self._dt * x_acc,
-                       x[3] + self._dt * th_acc))
+        xn = np.hstack((x[0] + self._dt * x[2],
+                        x[1] + self._dt * x[3],
+                        x[2] + self._dt * x_acc,
+                        x[3] + self._dt * th_acc))
 
         xn = np.clip(xn, -self._xmax, self._xmax)
         return xn
