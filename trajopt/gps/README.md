@@ -13,14 +13,11 @@
 
 Using Armadillo
 ===
-- Compile Armadillo:
+- Compile Armadillo with standard libraries:
     * http://arma.sourceforge.net/download.html
-    * Compile Armadillo with our OpenBLAS
     ```shell
     ./configure
     ccmake .
-    # set OpenBLAS path to our previously compiled library
-    # configure, generate and exit
     make -j 4
     ```
     * Edit local CMakeLists.txt to reflect the path of Armadillo
@@ -33,7 +30,7 @@ Using OpenBLAS
     * Make sure you have the fortran compiler
     * https://github.com/xianyi/OpenBLAS.git
    ```shell
-   USE_THREAD=1, CC=gcc, FC=gfortran, NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
+   USE_THREAD=1, C=gcc, FC=gfortran, NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
    ```     
 
 - Configure Armadillo, no need to make:
