@@ -81,7 +81,7 @@ class iLQR:
             cost[..., t] = self.env.unwrapped.cost(state[..., t], action[..., t], self.activation[t])
             state[..., t + 1], _, _, _ = self.env.step(action[..., t])
 
-        cost[..., -1] = self.env.env.cost(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
+        cost[..., -1] = self.env.unwrapped.cost(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
         return state, action, cost
 
     def backward_pass(self):

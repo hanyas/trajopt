@@ -38,8 +38,8 @@ class MBGPS:
 
         # kl mult.
         self.kl_mult = 1.
-        self.kl_mult_min = 1.0  # 0.1
-        self.kl_mult_max = 1.0  # 5.0
+        self.kl_mult_min = 0.1
+        self.kl_mult_max = 5.0
 
         self.alpha = np.array([-100.])
 
@@ -78,17 +78,18 @@ class MBGPS:
 
             for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
+                u = np.clip(u, - self.ulim, self.ulim)
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.cost.evalf(x, u, self.activation[t])
+                c = self.env.unwrapped.cost(x, u, self.activation[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
-                x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
+                x, _, _, _ = self.env.step(u)
                 data['xn'][..., t, n] = x
 
-            c = self.cost.evalf(x, np.zeros((self.dm_act, )), self.activation[-1])
+            c = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.activation[-1])
             data['c'][-1, n] = c
 
         return data
@@ -250,7 +251,7 @@ class MBGPS:
             else:
                 print("Something is wrong, KL not satisfied")
 
-            # update kl bound
-            self.kl_bound = self.kl_base * self.kl_mult
+            # # update kl bound
+            # self.kl_bound = self.kl_base * self.kl_mult
 
         return _trace
