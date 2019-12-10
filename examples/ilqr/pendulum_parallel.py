@@ -3,26 +3,31 @@ from trajopt.ilqr import iLQR
 
 from joblib import Parallel, delayed
 
+import multiprocessing
+nb_cores = multiprocessing.cpu_count()
+
 
 def create_job(kwargs):
-    env = gym.make('Pendulum-TO-v1')
+    env = gym.make('Pendulum-TO-v0')
     env._max_episode_steps = 500
 
     alg = iLQR(env, nb_steps=500,
-               activation=range(350, 500))
+               activation=range(450, 500))
 
     alg.run(nb_iter=100)
-    return alg.xref.T, alg.uref.T
+
+    state, action, _ = alg.forward_pass(ctl=alg.ctl, alpha=1.)
+    return state[:, :-1].T, action.T
 
 
 def parallel_ilqr(nb_jobs=50):
     kwargs_list = [{} for _ in range(nb_jobs)]
-    results = Parallel(n_jobs=-1, verbose=10, backend='loky')(map(delayed(create_job), kwargs_list))
+    results = Parallel(n_jobs=min(nb_jobs, nb_cores), verbose=10, backend='loky')(map(delayed(create_job), kwargs_list))
     obs, act = list(map(list, zip(*results)))
     return obs, act
 
 
-obs, act = parallel_ilqr(nb_jobs=100)
+obs, act = parallel_ilqr(nb_jobs=50)
 
 import matplotlib.pyplot as plt
 

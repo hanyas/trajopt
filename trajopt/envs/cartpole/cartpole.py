@@ -15,26 +15,31 @@ class Cartpole(gym.Env):
 
         self._dt = 0.01
 
-        self._x0 = np.array([0., np.pi, 0., 0.])
-        self._sigma_0 = 1.e-4 * np.eye(self.dm_state)
-
-        self._sigma = 1.e-4 * np.eye(self.dm_state)
+        self._sigma = 1e-4 * np.eye(self.dm_state)
 
         # g = [x, th, dx, dth]
         self._g = np.array([0., 2. * np.pi, 0., 0.])
-        self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
+        self._gw = np.array([1e-1, 1e1, 1e0, 1e0])
 
         # x = [x, th, dx, dth]
-        self._xmax = np.array([10., np.inf, 25., 25.])
+        self._xmax = np.array([5., np.inf, 5., 10.])
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
-        self._uw = np.array([1.e-3])
+        self._uw = np.array([1e-3])
         self._umax = 10.0
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
+        self.state = None
+        self.np_random = None
+
         self.seed()
+
+        _low, _high = np.array([-0.1, np.pi - np.pi / 18., -0.1, -1.0]),\
+                      np.array([0.1, np.pi + np.pi / 18., 0.1, 1.0])
+        self._x0 = self.np_random.uniform(low=_low, high=_high)
+        self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
 
     @property
     def xlim(self):
