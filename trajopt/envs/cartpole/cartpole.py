@@ -64,7 +64,7 @@ class Cartpole(gym.Env):
     def dynamics(self, x, u):
         _u = np.clip(u, -self._umax, self._umax)
 
-        # import from: https://github.com/JoeMWatson/input-inference-for-control/
+        # Equations: http://coneural.org/florian/papers/05_cart_pole.pdf
         # x = [x, th, dx, dth]
         g = 9.81
         Mc = 0.37
@@ -77,10 +77,11 @@ class Cartpole(gym.Env):
         sth = np.sin(th)
         cth = np.cos(th)
 
-        _num = - Mp * l * sth * dth2 + Mt * g * sth - _u * cth
-        _denom = l * ((4. / 3.) * Mt - Mp * cth ** 2)
+        _num = g * sth + cth * (- _u - Mp * l * dth2 * sth) / Mt
+        _denom = l * ((4. / 3.) - Mp * cth**2 / Mt)
         th_acc = _num / _denom
-        x_acc = (Mp * l * sth * dth2 - Mp * l * th_acc * cth + _u) / Mt
+
+        x_acc = (_u + Mp * l * (dth2 * sth - th_acc * cth)) / Mt
 
         xn = np.hstack((x[0] + self._dt * x[2],
                         x[1] + self._dt * x[3],
