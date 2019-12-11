@@ -30,7 +30,7 @@ Using OpenBLAS
     * Make sure you have the fortran compiler
     * https://github.com/xianyi/OpenBLAS.git
    ```shell
-   USE_THREAD=1, C=gcc, FC=gfortran, NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
+   USE_THREAD=1 C=gcc FC=gfortran NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
    ```     
 
 - Configure Armadillo, no need to make:
