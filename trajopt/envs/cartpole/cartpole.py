@@ -138,7 +138,7 @@ class CartpoleWithCartesianCost(Cartpole):
 
         # g = [x, cs_th, sn_th, dx, dth]
         self._g = np.array([1e-1, 1., 0., 0., 0.])
-        self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1, 1.e-1])
+        self._gw = np.array([1.e-1, 1.e1, 1.e-6, 1.e-1, 1.e-1])
 
     def features(self, x):
         return np.array([x[0],
