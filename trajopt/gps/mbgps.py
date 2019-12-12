@@ -41,7 +41,7 @@ class MBGPS:
         self.kl_mult_min = 0.1
         self.kl_mult_max = 5.0
 
-        self.alpha = np.array([-100.])
+        self.alpha = np.array([-1e4])
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -78,7 +78,7 @@ class MBGPS:
 
             for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
-                u = np.clip(u, - self.ulim, self.ulim)
+                u = np.clip(u, -self.ulim, self.ulim)
                 data['u'][..., t, n] = u
 
                 # expose true reward function
@@ -94,18 +94,14 @@ class MBGPS:
 
         return data
 
-    def extended_kalman(self, lgc):
-        xdist = Gaussian(self.dm_state, self.nb_steps + 1)
-        udist = Gaussian(self.dm_act, self.nb_steps)
+    def simulate(self, lgc):
+        xdist, udist = self.dyn.extended_kalman(lgc)
+
         cost = np.zeros((self.nb_steps + 1, ))
-
-        xdist.mu[..., 0], xdist.sigma[..., 0] = self.dyn.evali()
         for t in range(self.nb_steps):
-            udist.mu[..., t], udist.sigma[..., t] = lgc.forward(xdist, t)
-            cost[..., t] = self.cost.evalf(xdist.mu[..., t], udist.mu[..., t], self.activation[t])
-            xdist.mu[..., t + 1], xdist.sigma[..., t + 1] = self.dyn.forward(xdist, udist, lgc, t)
+            cost[..., t] = self.env.unwrapped.cost(xdist.mu[..., t], udist.mu[..., t], self.activation[t])
+        cost[..., -1] = self.env.unwrapped.cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
 
-        cost[..., -1] = self.cost.evalf(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
         return xdist, udist, cost
 
     def forward_pass(self, lgc):
@@ -194,21 +190,21 @@ class MBGPS:
 
         plt.show()
 
-    def run(self, nb_iter=10):
+    def run(self, nb_iter=10, verbose=False):
         _trace = []
 
         # get mena traj. and linear system dynamics
-        self.xdist, self.udist, _cost = self.extended_kalman(self.ctl)
+        self.xdist, self.udist, _cost = self.simulate(self.ctl)
         # mean objective under current dists.
         self.last_return = np.sum(_cost)
         _trace.append(self.last_return)
 
-        for _ in range(nb_iter):
+        for iter in range(nb_iter):
             # get quadratic cost around mean traj.
             self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.activation)
 
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1.e3]),
+            res = sc.optimize.minimize(self.dual, np.array([-1e4]),
                                        method='L-BFGS-B',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
@@ -219,7 +215,7 @@ class MBGPS:
             # re-compute after opt.
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
-            xdist, udist, _cost = self.extended_kalman(lgc)
+            xdist, udist, _cost = self.simulate(lgc)
             _return = np.sum(_cost)
 
             # get expected improvment:
@@ -237,7 +233,7 @@ class MBGPS:
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
-            if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
+            if (kl - self.kl_bound) < 0.1 * self.kl_bound:
                 # update controller
                 self.ctl = lgc
                 # update state-action dists.
@@ -253,5 +249,11 @@ class MBGPS:
 
             # # update kl bound
             # self.kl_bound = self.kl_base * self.kl_mult
+
+            if verbose:
+                print("iter: ", iter,
+                      " req. kl: ", self.kl_bound,
+                      " act. kl: ", kl,
+                      " return: ", _return)
 
         return _trace

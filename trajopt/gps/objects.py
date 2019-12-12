@@ -208,26 +208,44 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         _sigma = self.noise(x, u)
         return _A, _B, _c, _sigma
 
-    def forward(self, x, u, lgc, t):
-        _mu_x, _sigma_x = x.mu[..., t], x.sigma[..., t]
-        _mu_u, _sigma_u = u.mu[..., t], u.sigma[..., t]
+    def extended_kalman(self, lgc):
+        pool = Pool(processes=-1)
 
-        _K, _kff, _ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
-        _A, _B, _c, _dyn_sigma = self.taylor_expansion(_mu_x, _mu_u)
+        xdist = Gaussian(self.dm_state, self.nb_steps + 1)
+        udist = Gaussian(self.dm_act, self.nb_steps)
 
-        _mu_xn = self.evalf(_mu_x, _mu_u)
+        # forward propagation of mean dynamics
+        xdist.mu[..., 0], xdist.sigma[..., 0] = self.evali()
+        for t in range(self.nb_steps):
+            udist.mu[..., t] = lgc.mean(xdist.mu[..., t], t)
+            xdist.mu[..., t + 1] = self.evalf(xdist.mu[..., t], udist.mu[..., t])
 
-        _AB = np.hstack((_A, _B))
-        _sigma_xu = np.vstack((np.hstack((_sigma_x, _sigma_x @ _K.T)),
-                               np.hstack((_K @ _sigma_x, _sigma_u))))
+        # parallel autograd linearization around mean traj.
+        def _loop(t):
+            return self.taylor_expansion(xdist.mu[..., t], udist.mu[..., t])
 
-        _sigma_xn = _dyn_sigma + _AB @ _sigma_xu @ _AB.T
-        _sigma_xn = 0.5 * (_sigma_xn + _sigma_xn.T)
+        res = pool.map(_loop, range(self.nb_steps))
+        for t in range(self.nb_steps):
+            self.A[..., t], self.B[..., t], self.c[..., t], self.sigma[..., t] = res[t]
 
-        self.A[..., t], self.B[..., t], self.c[..., t] = _A, _B, _c
-        self.sigma[..., t] = _dyn_sigma
+            # construct variace of next time step with extend Kalman filtering
+            _mu_x, _sigma_x = xdist.mu[..., t], xdist.sigma[..., t]
+            _K, _kff, _ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
 
-        return _mu_xn, _sigma_xn
+            # propagate variance of action dist.
+            _u_sigma = _ctl_sigma + _K @ _sigma_x @ _K.T
+            _u_sigma = 0.5 * (_u_sigma + _u_sigma.T)
+            udist.sigma[..., t] = _u_sigma
+
+            _AB = np.hstack((self.A[..., t], self.B[..., t]))
+            _sigma_xu = np.vstack((np.hstack((_sigma_x, _sigma_x @ _K.T)),
+                                   np.hstack((_K @ _sigma_x, _u_sigma))))
+
+            _sigma_xn = self.sigma[..., t] + _AB @ _sigma_xu @ _AB.T
+            _sigma_xn = 0.5 * (_sigma_xn + _sigma_xn.T)
+            xdist.sigma[..., t + 1] = _sigma_xn
+
+        return xdist, udist
 
 
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):

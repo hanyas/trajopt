@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: gps.py
-# @Date: 2019-06-06-08-56
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
 import autograd.numpy as np
 
 import scipy as sc
@@ -85,17 +78,18 @@ class MFGPS:
 
             for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
+                u = np.clip(u, -self.ulim, self.ulim)
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.cost.evalf(x, u, self.activation[t])
+                c = self.env.unwrapped.cost(x, u, self.activation[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
-            c = self.cost.evalf(x, np.zeros((self.dm_act, )), self.activation[-1])
+            c = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.activation[-1])
             data['c'][-1, n] = c
 
         return data
