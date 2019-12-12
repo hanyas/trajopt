@@ -2,7 +2,6 @@ from .lqr.lqr import LQR
 
 from .pendulum.pendulum import Pendulum
 from .pendulum.pendulum import PendulumWithCartesianCost
-from .pendulum.pendulum import PendulumWithCartesianObservation
 
 from .cartpole.cartpole import Cartpole
 from .cartpole.cartpole import CartpoleWithCartesianCost
