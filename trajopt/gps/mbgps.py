@@ -233,7 +233,7 @@ class MBGPS:
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
-            if (kl - self.kl_bound) < 0.1 * self.kl_bound:
+            if np.fabs(kl - self.kl_bound) < 0.1 * self.kl_bound:
                 # update controller
                 self.ctl = lgc
                 # update state-action dists.
