@@ -12,9 +12,9 @@ class iLQR:
     def __init__(self, env, nb_steps,
                  alphas=np.power(10., np.linspace(0, -3, 11)),
                  lmbda=1., dlmbda=1.,
-                 min_lmbda=1.e-6, max_lmbda=1.e6, mult_lmbda=1.6,
-                 tolfun=1.e-8, tolgrad=1.e-6, min_imp=0., reg=1,
-                 activation=range(-1, 0)):
+                 min_lmbda=1e-6, max_lmbda=1e6, mult_lmbda=1.6,
+                 tolfun=1e-6, tolgrad=1e-4, min_imp=0., reg=1,
+                 activation=None):
 
         self.env = env
 
@@ -60,10 +60,12 @@ class iLQR:
         self.ctl = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
         self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
 
-        # activation of cost function
-        self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
-        self.activation[-1] = 1.  # last step always in
-        self.activation[activation] = 1.
+        # activation of cost function in shape of sigmoid
+        if activation is None:
+            self.weighting = np.ones((self.nb_steps + 1, ))
+        else:
+            _t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (_t - activation['shift'])))
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -78,10 +80,10 @@ class iLQR:
         for t in range(self.nb_steps):
             _act = ctl.action(state, alpha, self.xref, self.uref, t)
             action[..., t] = np.clip(_act, -self.ulim, self.ulim)
-            cost[..., t] = self.env.unwrapped.cost(state[..., t], action[..., t], self.activation[t])
+            cost[..., t] = self.env.unwrapped.cost(state[..., t], action[..., t], self.weighting[t])
             state[..., t + 1], _, _, _ = self.env.step(action[..., t])
 
-        cost[..., -1] = self.env.unwrapped.cost(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
+        cost[..., -1] = self.env.unwrapped.cost(state[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
         return state, action, cost
 
     def backward_pass(self):
@@ -116,12 +118,12 @@ class iLQR:
 
         plt.show()
 
-    def run(self, nb_iter=25):
+    def run(self, nb_iter=25, verbose=False):
         _trace = []
         # init trajectory
         for alpha in self.alphas:
             _state, _action, _cost = self.forward_pass(self.ctl, alpha)
-            if np.all(_state < 1.e8):
+            if np.all(_state < 1e8):
                 self.xref = _state
                 self.uref = _action
                 self.last_return = np.sum(_cost)
@@ -131,12 +133,12 @@ class iLQR:
 
         _trace.append(self.last_return)
 
-        for _ in range(nb_iter):
+        for iter in range(nb_iter):
             # get linear system dynamics around ref traj.
             self.dyn.taylor_expansion(self.xref, self.uref)
 
             # get quadratic cost around ref traj.
-            self.cost.taylor_expansion(self.xref, self.uref, self.activation)
+            self.cost.taylor_expansion(self.xref, self.uref, self.weighting)
 
             xvalue, xuvalue = None, None
             lc, dvalue = None, None
@@ -157,7 +159,7 @@ class iLQR:
 
             # terminate if gradient too small
             _g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref) + 1.), axis=1))
-            if _g_norm < self.tolgrad and self.lmbda < 1.e-5:
+            if _g_norm < self.tolgrad and self.lmbda < 1e-5:
                 self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
                 self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
                 break
@@ -210,5 +212,9 @@ class iLQR:
                     break
                 else:
                     continue
+
+            if verbose:
+                print("iter: ", iter,
+                      " return: ", _return)
 
         return _trace

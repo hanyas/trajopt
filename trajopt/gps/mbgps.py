@@ -16,7 +16,7 @@ class MBGPS:
 
     def __init__(self, env, nb_steps, kl_bound,
                  init_ctl_sigma,
-                 activation=range(-1, 0)):
+                 activation):
 
         self.env = env
 
@@ -58,10 +58,12 @@ class MBGPS:
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_ctl_sigma)
         self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
 
-        # activation of cost function
-        self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
-        self.activation[-1] = 1.  # last step always in
-        self.activation[activation] = 1.
+        # activation of cost function in shape of sigmoid
+        if activation is None:
+            self.weighting = np.ones((self.nb_steps + 1, ))
+        else:
+            _t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (_t - activation['shift'])))
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -82,25 +84,23 @@ class MBGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env.unwrapped.cost(x, u, self.activation[t])
-                data['c'][t] = c
+                data['c'][t] = self.env.unwrapped.cost(x, u, self.weighting[t])
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(u)
                 data['xn'][..., t, n] = x
 
-            c = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.activation[-1])
-            data['c'][-1, n] = c
+            data['c'][-1, n] = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.weighting[-1])
 
         return data
 
     def simulate(self, lgc):
-        xdist, udist = self.dyn.extended_kalman(lgc)
+        xdist, udist = self.dyn.extended_kalman(lgc, self.ulim)
 
         cost = np.zeros((self.nb_steps + 1, ))
         for t in range(self.nb_steps):
-            cost[..., t] = self.env.unwrapped.cost(xdist.mu[..., t], udist.mu[..., t], self.activation[t])
-        cost[..., -1] = self.env.unwrapped.cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
+            cost[..., t] = self.env.unwrapped.cost(xdist.mu[..., t], udist.mu[..., t], self.weighting[t])
+        cost[..., -1] = self.env.unwrapped.cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
 
         return xdist, udist, cost
 
@@ -201,15 +201,15 @@ class MBGPS:
 
         for iter in range(nb_iter):
             # get quadratic cost around mean traj.
-            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.activation)
+            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1e4]),
-                                       method='L-BFGS-B',
+            res = sc.optimize.minimize(self.dual, self.alpha,
+                                       method='SLSQP',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
-                                       options={'disp': False, 'maxiter': 250,
-                                                'ftol': 1e-4})
+                                       options={'disp': False, 'maxiter': 10000,
+                                                'ftol': 1e-6})
             self.alpha = res.x
 
             # re-compute after opt.
@@ -227,13 +227,13 @@ class MBGPS:
             _actual_imp = self.last_return - _return
 
             # update kl multiplier
-            _mult = _expected_imp / (2. * np.maximum(1.e-4, _expected_imp - _actual_imp))
+            _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
             _mult = np.maximum(0.1, np.minimum(5.0, _mult))
             self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
-            if np.fabs(kl - self.kl_bound) < 0.1 * self.kl_bound:
+            if np.fabs(kl - self.kl_bound) < (0.25 * self.kl_bound):
                 # update controller
                 self.ctl = lgc
                 # update state-action dists.

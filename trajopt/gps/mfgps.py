@@ -16,7 +16,7 @@ class MFGPS:
 
     def __init__(self, env, nb_steps, kl_bound,
                  init_ctl_sigma,
-                 activation=range(-1, 0)):
+                 activation):
 
         self.env = env
 
@@ -41,7 +41,7 @@ class MFGPS:
         self.kl_mult_min = 0.1
         self.kl_mult_max = 5.0
 
-        self.alpha = np.array([-100.])
+        self.alpha = np.array([-1e4])
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -56,10 +56,12 @@ class MFGPS:
         self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_ctl_sigma)
 
-        # activation of cost function
-        self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
-        self.activation[-1] = 1.  # last step always in
-        self.activation[activation] = 1.
+        # activation of cost function in shape of sigmoid
+        if activation is None:
+            self.weighting = np.ones((self.nb_steps + 1, ))
+        else:
+            _t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (_t - activation['shift'])))
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -82,14 +84,14 @@ class MFGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env.unwrapped.cost(x, u, self.activation[t])
+                c = self.env.unwrapped.cost(x, u, self.weighting[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
-            c = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.activation[-1])
+            c = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.weighting[-1])
             data['c'][-1, n] = c
 
         return data
@@ -180,7 +182,7 @@ class MFGPS:
 
         plt.show()
 
-    def run(self, nb_episodes, nb_iter=10):
+    def run(self, nb_episodes, nb_iter=10, verbose=False):
         _trace = []
 
         # run init controller
@@ -193,20 +195,20 @@ class MFGPS:
         self.last_return = np.mean(np.sum(self.data['c'], axis=0))
         _trace.append(self.last_return)
 
-        for _ in range(nb_iter):
+        for iter in range(nb_iter):
             # get quadratic cost around mean traj.
-            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.activation)
+            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
             # mean objective under current ctrl.
             _trace.append(np.mean(np.sum(self.data['c'], axis=0)))
 
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1.e3]),
+            res = sc.optimize.minimize(self.dual, np.array([-1e4]),
                                        method='L-BFGS-B',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
-                                       options={'disp': False, 'maxiter': 1000,
-                                                'ftol': 1e-10})
+                                       options={'disp': False, 'maxiter': 10000,
+                                                'ftol': 1e-6})
             self.alpha = res.x
 
             # re-compute after opt.
@@ -219,7 +221,7 @@ class MFGPS:
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
-            if (kl - self.nb_steps * self.kl_bound) < 0.1 * self.nb_steps * self.kl_bound:
+            if np.fabs(kl - self.kl_bound) < 0.1 * self.kl_bound:
                 # update controller
                 self.ctl = lgc
                 # update state-action dists.
@@ -241,7 +243,7 @@ class MFGPS:
             _actual_imp = self.last_return - _return
 
             # update kl multiplier
-            _mult = _expected_imp / (2. * np.maximum(1.e-4, _expected_imp - _actual_imp))
+            _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
             _mult = np.maximum(0.1, np.minimum(5.0, _mult))
             self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
@@ -249,7 +251,13 @@ class MFGPS:
             self.last_return = _return
             _trace.append(self.last_return)
 
-            # update kl bound
-            self.kl_bound = self.kl_base * self.kl_mult
+            # # update kl bound
+            # self.kl_bound = self.kl_base * self.kl_mult
+
+            if verbose:
+                print("iter: ", iter,
+                      " req. kl: ", self.kl_bound,
+                      " act. kl: ", kl,
+                      " return: ", _return)
 
         return _trace
