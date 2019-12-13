@@ -87,13 +87,13 @@ class Car(gym.Env):
     def dyn_noise(self, x=None, u=None):
         _u = np.clip(u, -self._umax, self._umax)
         _x = np.clip(x, -self._xmax, self._xmax)
-        return 1.e-4 * np.eye(self.dm_state)
+        return 1e-4 * np.eye(self.dm_state)
 
     def observe(self, x):
         return np.array([x[0], x[1]])
 
     def obs_noise(self, x=None):
-        _sigma = 1.e-4 * np.eye(self.dm_obs)
+        _sigma = 1e-4 * np.eye(self.dm_obs)
         _sigma += np.array([[0.5 * (5. - x[0])**2, 0.],
                             [0., 0.]])
         return _sigma

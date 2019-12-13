@@ -117,14 +117,14 @@ class QCartpoleTO(QCartpoleBase):
         self.dyn = CartpoleDynamics(False)
 
         self._x0 = np.array([0., np.pi, 0., 0.])
-        self._sigma_0 = 1.e-4 * np.eye(4)
+        self._sigma_0 = 1e-4 * np.eye(4)
 
-        self._sigma = 1.e-4 * np.eye(4)
+        self._sigma = 1e-4 * np.eye(4)
 
         self._g = np.array([0., 2. * np.pi, 0., 0.])
-        self._gw = np.array([1.e-1, 1.e1, 1.e-1, 1.e-1])
+        self._gw = np.array([1e-1, 1e1, 1e-1, 1e-1])
 
-        self._uw = np.array([1.e-3])
+        self._uw = np.array([1e-3])
 
     def init(self):
         return self._x0, self._sigma_0

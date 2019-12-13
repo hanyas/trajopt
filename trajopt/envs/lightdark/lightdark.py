@@ -69,7 +69,7 @@ class LightDark(gym.Env):
         # initial belief
         _b0 = np.array([2., 2.])
         _sigma_b0 = np.array([[5., 0.],
-                              [0., 1.e-8]])
+                              [0., 1e-8]])
         return _b0, _sigma_b0
 
     def dynamics(self, x, u):
@@ -81,7 +81,7 @@ class LightDark(gym.Env):
     def dyn_noise(self, x=None, u=None):
         _x = np.clip(x, -self._xmax, self._xmax)
         _u = np.clip(u, -self._umax, self._umax)
-        return 1.e-8 * np.eye(self.dm_state)
+        return 1e-8 * np.eye(self.dm_state)
 
     def observe(self, x):
         return x
