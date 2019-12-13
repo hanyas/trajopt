@@ -26,7 +26,7 @@ class Pendulum(gym.Env):
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
-        self._uw = np.array([1.e-3])
+        self._uw = np.array([1e-3])
         self._umax = 2.5
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
@@ -39,7 +39,7 @@ class Pendulum(gym.Env):
         _low, _high = np.array([np.pi - np.pi / 18., -1.0]),\
                       np.array([np.pi + np.pi / 18., 1.0])
         self._x0 = self.np_random.uniform(low=_low, high=_high)
-        self._sigma_0 = 1.e-8 * np.eye(self.dm_state)
+        self._sigma_0 = 1e-4 * np.eye(self.dm_state)
 
     @property
     def xlim(self):
@@ -62,19 +62,19 @@ class Pendulum(gym.Env):
         return self._x0, self._sigma_0
 
     def dynamics(self, x, u):
-        u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self._umax, self._umax)
 
-        g, m, l, k = 10., 1., 1., 1.e-3
+        g, m, l, k = 10., 1., 1., 1e-3
 
         def f(x, u):
             th, dth = x
             return np.hstack((dth, 3. * g / (2. * l) * np.sin(th) +
                               3. / (m * l ** 2) * (u - k * dth)))
 
-        k1 = f(x, u)
-        k2 = f(x + 0.5 * self.dt * k1, u)
-        k3 = f(x + 0.5 * self.dt * k2, u)
-        k4 = f(x + self.dt * k3, u)
+        k1 = f(x, _u)
+        k2 = f(x + 0.5 * self.dt * k1, _u)
+        k3 = f(x + 0.5 * self.dt * k2, _u)
+        k4 = f(x + self.dt * k3, _u)
 
         xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
         xn = np.clip(xn, -self._xmax, self._xmax)
@@ -84,7 +84,7 @@ class Pendulum(gym.Env):
     def inverse_dynamics(self, x, u):
         _u = np.clip(u, -self._umax, self._umax)
 
-        g, m, l, k = 10., 1., 1., 1.e-3
+        g, m, l, k = 10., 1., 1., 1e-3
 
         def f(x, u):
             th, dth = x
@@ -115,12 +115,9 @@ class Pendulum(gym.Env):
         return self._sigma
 
     def cost(self, x, u, a):
-        if a:
-            _J, _j = self.features_jacobian(getval(x))
-            _x = _J(getval(x)) @ x + _j
-            return (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
-        else:
-            return u.T @ np.diag(self._uw) @ u
+        _J, _j = self.features_jacobian(getval(x))
+        _x = _J(getval(x)) @ x + _j
+        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -148,7 +145,7 @@ class PendulumWithCartesianCost(Pendulum):
 
         # g = [cs_th, sn_th, dth]
         self._g = np.array([1., 0., 0.])
-        self._gw = np.array([1e0, 1e-4, 1e-1])
+        self._gw = np.array([1e1, 1e1, 1e-3])
 
     def features(self, x):
         return np.array([np.cos(x[0]), np.sin(x[0]), x[1]])

@@ -19,12 +19,12 @@ class DoubleCartpole(gym.Env):
         self._g = np.array([0., 2. * np.pi, 0., 0., 0., 0.])
 
         self._x0 = np.array([0., np.pi, 0., 0., 0., 0.])
-        self._sigma_0 = 1.e-4 * np.eye(self.dm_state)
+        self._sigma_0 = 1e-4 * np.eye(self.dm_state)
 
-        self._sigma = 1.e-4 * np.eye(self.dm_state)
+        self._sigma = 1e-4 * np.eye(self.dm_state)
 
-        self._gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1.e-1])
-        self._uw = np.array([1.e-3])
+        self._gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1e-1])
+        self._uw = np.array([1e-3])
 
         self._xmax = np.array([10., np.inf, np.inf, 25., 25., 25.])
         self._umax = 5.0
@@ -34,6 +34,9 @@ class DoubleCartpole(gym.Env):
 
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
+
+        self.state = None
+        self.np_random = None
 
         self.seed()
 
@@ -163,12 +166,9 @@ class DoubleCartpole(gym.Env):
         return self._sigma
 
     def cost(self, x, u, a):
-        if a:
-            _J, _j = self.features_jacobian(getval(x))
-            _x = _J(getval(x)) @ x + _j
-            return (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
-        else:
-            return u.T @ np.diag(self._uw) @ u
+        _J, _j = self.features_jacobian(getval(x))
+        _x = _J(getval(x)) @ x + _j
+        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -201,9 +201,9 @@ class DoubleCartpoleWithCartesianCost(DoubleCartpole):
                             0., 0., 0.])
 
         self._gw = np.array([1e-1,
-                             1.e1, 1.e-1,
-                             1.e1, 1.e-1,
-                             1.e-1, 1.e-1, 1.e-1])
+                             1e1, 1e-1,
+                             1e1, 1e-1,
+                             1e-1, 1e-1, 1e-1])
 
     def features(self, x):
         return np.array([x[0],

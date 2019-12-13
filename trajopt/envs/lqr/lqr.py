@@ -19,9 +19,9 @@ class LQR(gym.Env):
         self._B = np.array([[1.], [0.]])
         self._c = - self._A @ self._g  # stable at goal
 
-        self._sigma = 1.e-8 * np.eye(2)
+        self._sigma = 1e-8 * np.eye(2)
 
-        self._gw = np.array([1.e1, 1.e1])
+        self._gw = np.array([1e1, 1e1])
         self._uw = np.array([1.])
 
         self._xmax = np.array([np.inf, np.inf])
@@ -32,6 +32,9 @@ class LQR(gym.Env):
 
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
+
+        self.state = None
+        self.np_random = None
 
         self.seed()
 
@@ -53,7 +56,7 @@ class LQR(gym.Env):
 
     def init(self):
         # mu, sigma
-        return np.array([5., 5.]), 1.e-4 * np.eye(2)
+        return np.array([5., 5.]), 1e-4 * np.eye(2)
 
     def dynamics(self, x, u):
         _u = np.clip(u, -self._umax, self._umax)
@@ -93,10 +96,7 @@ class LQR(gym.Env):
         return self._sigma
 
     def cost(self, x, u, a):
-        if a:
-            return (x - self._g).T @ np.diag(self._gw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
-        else:
-            return u.T @ np.diag(self._uw) @ u
+        return a * (x - self._g).T @ np.diag(self._gw) @ (x - self._g) + u.T @ np.diag(self._uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
