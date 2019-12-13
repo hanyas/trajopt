@@ -208,7 +208,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         _sigma = self.noise(x, u)
         return _A, _B, _c, _sigma
 
-    def extended_kalman(self, lgc):
+    def extended_kalman(self, lgc, ulim):
         pool = Pool(processes=-1)
 
         xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -217,7 +217,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         # forward propagation of mean dynamics
         xdist.mu[..., 0], xdist.sigma[..., 0] = self.evali()
         for t in range(self.nb_steps):
-            udist.mu[..., t] = lgc.mean(xdist.mu[..., t], t)
+            udist.mu[..., t] = np.clip(lgc.mean(xdist.mu[..., t], t), - ulim, ulim)
             xdist.mu[..., t + 1] = self.evalf(xdist.mu[..., t], udist.mu[..., t])
 
         # parallel autograd linearization around mean traj.
@@ -256,7 +256,7 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
         if pointwise:
             from mimo import distributions
             _hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
-                              V=1.e6 * np.eye(self.dm_state + self.dm_act + 1),
+                              V=1e6 * np.eye(self.dm_state + self.dm_act + 1),
                               affine=True,
                               psi=np.eye(self.dm_state), nu=self.dm_state + 2)
             _prior = distributions.MatrixNormalInverseWishart(**_hypparams)
