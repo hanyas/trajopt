@@ -20,8 +20,8 @@ class BSPiLQR:
     def __init__(self, env, nb_steps,
                  alphas=np.power(10., np.linspace(0, -3, 11)),
                  lmbda=1., dlmbda=1.,
-                 min_lmbda=1.e-6, max_lmbda=1.e6, mult_lmbda=1.6,
-                 tolfun=1.e-8, tolgrad=1.e-6, min_imp=0., reg=1,
+                 min_lmbda=1e-6, max_lmbda=1e6, mult_lmbda=1.6,
+                 tolfun=1e-8, tolgrad=1e-6, min_imp=0., reg=1,
                  activation=range(-1, 0)):
 
         self.env = env
@@ -140,7 +140,7 @@ class BSPiLQR:
         # init trajectory
         for alpha in self.alphas:
             _belief, _action, _cost = self.forward_pass(self.ctl, alpha)
-            if np.all(_belief.mu < 1.e8):
+            if np.all(_belief.mu < 1e8):
                 self.bref = _belief
                 self.uref = _action
                 self.last_return = np.sum(_cost)
@@ -176,7 +176,7 @@ class BSPiLQR:
 
             # terminate if gradient too small
             _g_norm = np.mean(np.max(np.abs(lc.kff) / (np.abs(self.uref) + 1.), axis=1))
-            if _g_norm < self.tolgrad and self.lmbda < 1.e-5:
+            if _g_norm < self.tolgrad and self.lmbda < 1e-5:
                 self.dlmbda = np.minimum(self.dlmbda / self.mult_lmbda, 1. / self.mult_lmbda)
                 self.lmbda = self.lmbda * self.dlmbda * (self.lmbda > self.min_lmbda)
                 break
