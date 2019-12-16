@@ -171,10 +171,9 @@ class Base(gym.Env):
         # Function to ensure that state and action constraints are satisfied:
 
         self.done = False
-        self.seed()
 
-    def _lim_act(self, action):
-        raise NotImplementedError
+        self._np_random = None
+        self.seed()
 
     def _zero_sim_step(self):
         return self._sim_step([0.0])
@@ -203,18 +202,11 @@ class Base(gym.Env):
         u_cmd = None
         for _ in range(self.timing.n_sim_per_ctrl):
             # this loop applies the constraints after each sim step
-            u_cmd = self._lim_act(u)
-            x = self._sim_step(u_cmd)
+            x, u_cmd = self._sim_step(u)
 
         return x, u_cmd
 
     def _rwd(self, x, u):
-        """
-
-        :param x:
-        :param u:
-        :return:
-        """
         raise NotImplementedError
 
     def seed(self, seed=None):

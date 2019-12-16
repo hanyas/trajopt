@@ -1,5 +1,4 @@
 import autograd.numpy as np
-import warnings
 
 from trajopt.envs.quanser.common import Base, LabeledBox, Timing
 
@@ -8,14 +7,13 @@ class QubeBase(Base):
     def __init__(self, fs, fs_ctrl):
         super(QubeBase, self).__init__(fs, fs_ctrl)
         self._state = None
-        self._vel_filt = None
         self.timing = Timing(fs, fs_ctrl)
 
         # Limits
-        act_max = np.array([3.0])
-        state_max = np.array([2.0, 4.0 * np.pi, 30.0, 40.0])
-        sens_max = np.array([2.0, np.inf])
-        obs_max = np.array([2.0, 4.0 * np.pi, state_max[2], state_max[3]])
+        act_max = np.array([5.0])
+        state_max = np.array([2.0, np.inf, 30.0, 40.0])
+        sens_max = np.array([2.3, np.inf])
+        obs_max = np.array([2.3, np.inf, state_max[2], state_max[3]])
 
         # Spaces
         self.sensor_space = LabeledBox(
@@ -30,24 +28,23 @@ class QubeBase(Base):
         self.action_space = LabeledBox(
             labels=('volts',),
             low=-act_max, high=act_max, dtype=np.float32)
-        self.reward_range = (0.0, self.timing.dt_ctrl)
+
+        # Function to ensure that state and action constraints are satisfied
+        safety_th_lim = 1.9
+        self._lim_act = ActionLimiter(self.state_space,
+                                      self.action_space,
+                                      safety_th_lim)
 
         # Initialize random number generator
         self._np_random = None
         self.seed()
 
     def _zero_sim_step(self):
-        return self._sim_step([0.0])
-
-    def _lim_act(self, action):
-        if np.abs(action) > 5.:
-            warnings.warn("Control signal a = {0:.2f} should be between -5V and 5V.".format(action))
-        return np.clip(action, -5., 5.)
+        return self._sim_step([0.0])[0]
 
     def _rwd(self, x, u):
         th, al, thd, ald = x
         cost = al**2 + 5e-3*ald**2 + 1e-1*th**2 + 2e-2*thd**2 + 3e-3*u[0]**2
-        done = not self.state_space.contains(x)
         rwd = - cost * self.timing.dt_ctrl
         return np.float32(rwd), False
 
@@ -55,6 +52,31 @@ class QubeBase(Base):
         obs = np.float32([state[0], state[1],
                           state[2], state[3]])
         return obs
+
+
+class ActionLimiter:
+    def __init__(self, state_space, action_space, th_lim_min):
+        self._th_lim_min = th_lim_min
+        self._th_lim_max = (state_space.high[0] + self._th_lim_min) / 2.0
+        self._th_lim_stiffness = \
+            action_space.high[0] / (self._th_lim_max - self._th_lim_min)
+        self._clip = lambda a: np.clip(a, action_space.low, action_space.high)
+        self._relu = lambda x: x * (x > 0.0)
+
+    def _joint_lim_violation_force(self, x):
+        th, _, thd, _ = x
+        up = self._relu(th-self._th_lim_max) - self._relu(th-self._th_lim_min)
+        dn = -self._relu(-th-self._th_lim_max)+self._relu(-th-self._th_lim_min)
+        if (th > self._th_lim_min and thd > 0.0 or
+                th < -self._th_lim_min and thd < 0.0):
+            force = self._th_lim_stiffness * (up + dn)
+        else:
+            force = 0.0
+        return force
+
+    def __call__(self, x, a):
+        force = self._joint_lim_violation_force(x)
+        return self._clip(force if force else a)
 
 
 class QubeDynamics:
@@ -71,12 +93,12 @@ class QubeDynamics:
         # Rotary arm
         self.Mr = 0.095  # mass (kg)
         self.Lr = 0.085  # length (m)
-        self.Dr = 5e-5   # viscous damping (N-m-s/rad), original: 0.0015
+        self.Dr = 5e-6   # viscous damping (N-m-s/rad), original: 0.0015
 
         # Pendulum link
         self.Mp = 0.024  # mass (kg)
         self.Lp = 0.129  # length (m)
-        self.Dp = 1e-5   # viscous damping (N-m-s/rad), original: 0.0005
+        self.Dp = 1e-6   # viscous damping (N-m-s/rad), original: 0.0005
 
         # Init constants
         self._init_const()
@@ -110,19 +132,19 @@ class QubeDynamics:
         voltage = u[0]
 
         # Define mass matrix M = [[a, b], [b, c]]
-        a = self._c[0] + self._c[1] * np.sin(al + np.pi) ** 2
-        b = self._c[2] * np.cos(al + np.pi)
+        a = self._c[0] + self._c[1] * np.sin(al) ** 2
+        b = self._c[2] * np.cos(al)
         c = self._c[3]
         d = a * c - b * b
 
         # Calculate vector [x, y] = tau - C(q, qd)
         trq = self.km * (voltage - self.km * thd) / self.Rm
-        c0 = self._c[1] * np.sin(2 * (al + np.pi)) * thd * ald \
-            - self._c[2] * np.sin(al + np.pi) * ald * ald
-        c1 = - 0.5 * self._c[1] * np.sin(2 * (al + np.pi)) * thd * thd +\
-             self._c[4] * np.sin(al + np.pi)
+        c0 = self._c[1] * np.sin(2 * al) * thd * ald\
+             - self._c[2] * np.sin(al) * ald * ald
+        c1 = - 0.5 * self._c[1] * np.sin(2 * al) * thd * thd\
+             + self._c[4] * np.sin(al)
         x = trq - self.Dr * thd - c0
-        y = - self.Dp * ald - c1
+        y = -self.Dp * ald - c1
 
         # Compute M^{-1} @ [x, y]
         thdd = (c * x - b * y) / d

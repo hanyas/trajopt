@@ -1,6 +1,5 @@
-import autograd.numpy as np
-
-from trajopt.envs.quanser.qube.base import QubeDynamics
+import numpy as np
+from .base import QubeDynamics
 
 
 class PDCtrl:
@@ -17,7 +16,7 @@ class PDCtrl:
 
     def __init__(self, K=None, th_des=0.0, tol=5e-2):
         self.done = False
-        self.K = K if K is not None else [5.0, 0.0, 0.5, 0.0]
+        self.K = K if K is not None else [2.5, 0.0, 0.5, 0.0]
         self.th_des = th_des
         self.tol = tol
 
@@ -30,20 +29,20 @@ class PDCtrl:
             self.done = True
         elif th_des and np.sqrt(all_but_th_squared) < tol / 5.0:
             # Increase P-gain on `th` when struggling to reach `th_des`
-            K[0] += 0.01 * K[0]
+            K[0] += 0.1 * K[0]
         return np.array([K[0]*(th_des - th) - K[1]*al - K[2]*thd - K[3]*ald])
 
 
 class GoToLimCtrl:
     """Go to joint limits by applying `u_max`; save limit value in `th_lim`."""
 
-    def __init__(self, positive=True):
+    def __init__(self, fs_ctrl, positive=True):
         self.done = False
         self.th_lim = 10.0
         self.sign = 1 if positive else -1
         self.u_max = 1.0
         self.cnt = 0
-        self.cnt_done = 200
+        self.cnt_done = int(.4 * fs_ctrl)
 
     def __call__(self, x):
         th, _, thd, _ = x
@@ -59,10 +58,10 @@ class GoToLimCtrl:
 class CalibrCtrl:
     """Go to joint limits, find midpoint, go to the midpoint."""
 
-    def __init__(self):
+    def __init__(self, fs_ctrl):
         self.done = False
-        self.go_right = GoToLimCtrl(positive=True)
-        self.go_left = GoToLimCtrl(positive=False)
+        self.go_right = GoToLimCtrl(fs_ctrl, positive=True)
+        self.go_left = GoToLimCtrl(fs_ctrl, positive=False)
         self.go_center = PDCtrl()
 
     def __call__(self, x):
@@ -94,34 +93,38 @@ class EnergyCtrl:
         _, al, _, ald = x
         Jp = self._dyn.Mp * self._dyn.Lp ** 2 / 12
         Ek = 0.5 * Jp * ald ** 2
-        Ep = 0.5 * self._dyn.Mp * self._dyn.g * self._dyn.Lp * (1. - np.cos(al + np.pi))
+        Ep = 0.5 * self._dyn.Mp * self._dyn.g * self._dyn.Lp * (1 - np.cos(al))
         E = Ek + Ep
-        acc = np.clip(self.mu * (E - self.Er) * np.sign(ald * np.cos(al + np.pi)),
+        acc = np.clip(self.mu * (self.Er - E) * np.sign(ald * np.cos(al)),
                       -self.a_max, self.a_max)
         trq = self._dyn.Mr * self._dyn.Lr * acc
-        voltage = self._dyn.Rm / self._dyn.km * trq
+        voltage = -self._dyn.Rm / self._dyn.km * trq
         return np.array([voltage])
 
 
 class SwingUpCtrl:
     """Hybrid controller (EnergyCtrl, PDCtrl) switching based on alpha."""
 
-    def __init__(self, ref_energy, energy_gain, acc_max,
-                 alpha_max_pd_enable=20.0, pd_gain=None):
-
+    def __init__(self, ref_energy=0.04, energy_gain=25.0, acc_max=5.0,
+                 alpha_max_pd_enable=10.0, pd_gain=None):
         # Set up the energy pumping controller
         self.en_ctrl = EnergyCtrl(ref_energy, energy_gain, acc_max)
-
         # Set up the PD controller
-        cos_al_delta = np.cos(2. * np.pi - np.deg2rad(alpha_max_pd_enable))
-        self.pd_enabled = lambda cos_al: cos_al > cos_al_delta
-        pd_gain = pd_gain if pd_gain is not None else [-1.5, 25.0, -1.5, 2.5]
+        cos_al_delta = 1.0 + np.cos(np.pi - np.deg2rad(alpha_max_pd_enable))
+        self.pd_enabled = lambda cos_al: np.abs(1.0 + cos_al) < cos_al_delta
+        pd_gain = pd_gain if pd_gain is not None else [-1.0, 20.0, -0.5, 1.25]
         self.pd_ctrl = PDCtrl(K=pd_gain)
 
     def __call__(self, obs):
         th, al, th_d, al_d = obs
-        if self.pd_enabled(np.cos(al)):
-            obs[1] = (2. * np.pi * al) if al > np.pi else al
-            return self.pd_ctrl(obs)
+        sin_th, cos_th = np.sin(th), np.cos(th)
+        sin_al, cos_al = np.sin(al), np.cos(al)
+
+        x = np.r_[np.arctan2(sin_th, cos_th),
+                  np.arctan2(sin_al, cos_al),
+                  th_d, al_d]
+        if self.pd_enabled(cos_al):
+            x[1] = x[1] % (2 * np.pi) - np.pi
+            return self.pd_ctrl(x)
         else:
-            return self.en_ctrl(obs)
+            return self.en_ctrl(x)
