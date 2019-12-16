@@ -39,7 +39,7 @@ class Cartpole(gym.Env):
         _low, _high = np.array([-0.1, np.pi - np.pi / 18., -0.1, -1.0]),\
                       np.array([0.1, np.pi + np.pi / 18., 0.1, 1.0])
         self._x0 = self.np_random.uniform(low=_low, high=_high)
-        self._sigma_0 = 1e-8 * np.eye(self.dm_state)
+        self._sigma_0 = 1e-4 * np.eye(self.dm_state)
 
     @property
     def xlim(self):
@@ -134,7 +134,7 @@ class CartpoleWithCartesianCost(Cartpole):
         super(CartpoleWithCartesianCost, self).__init__()
 
         # g = [x, cs_th, sn_th, dx, dth]
-        self._g = np.array([1e-1, 1., 0., 0., 0.])
+        self._g = np.array([0., 1., 0., 0., 0.])
         self._gw = np.array([1e-1, 1e1, 0., 1e-1, 1e-1])
 
     def features(self, x):

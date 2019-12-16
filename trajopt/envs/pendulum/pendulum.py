@@ -145,7 +145,7 @@ class PendulumWithCartesianCost(Pendulum):
 
         # g = [cs_th, sn_th, dth]
         self._g = np.array([1., 0., 0.])
-        self._gw = np.array([1e1, 1e1, 1e-3])
+        self._gw = np.array([1e1, 0., 1e-1])
 
     def features(self, x):
         return np.array([np.cos(x[0]), np.sin(x[0]), x[1]])
