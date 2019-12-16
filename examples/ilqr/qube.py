@@ -1,25 +1,21 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: cartpole.py
-# @Date: 2019-06-16-18-38
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
-
 import gym
 from trajopt.ilqr import iLQR
 
-# cartpole env
-env = gym.make('Quanser-Qube-TO-v0')
-env._max_episode_steps = 200
+import warnings
+warnings.filterwarnings("ignore")
 
-alg = iLQR(env, nb_steps=200,
-           activation=range(150, 200))
 
-# run iLQR
-trace = alg.run()
+# pendulum env
+env = gym.make('QQube-TO-v1')
+env._max_episode_steps = 500
 
-# plot forward pass
+alg = iLQR(env, nb_steps=500,
+           activation={'shift': 250, 'mult': 0.01})
+
+# run gps
+trace = alg.run(nb_iter=5, verbose=True)
+
+# plot dists
 alg.plot()
 
 # plot objective
@@ -27,4 +23,23 @@ import matplotlib.pyplot as plt
 
 plt.figure()
 plt.plot(trace)
+plt.show()
+
+state, action, _ = alg.forward_pass(ctl=alg.ctl, alpha=1.)
+
+plt.figure()
+
+plt.subplot(5, 1, 1)
+plt.plot(state[0, :], '-b')
+plt.subplot(5, 1, 2)
+plt.plot(state[1, :], '-b')
+
+plt.subplot(5, 1, 3)
+plt.plot(state[2, :], '-r')
+plt.subplot(5, 1, 4)
+plt.plot(state[3, :], '-r')
+
+plt.subplot(5, 1, 5)
+plt.plot(action[0, :], '-g')
+
 plt.show()

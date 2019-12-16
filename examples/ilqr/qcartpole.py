@@ -1,20 +1,12 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: cartpole.py
-# @Date: 2019-06-16-18-38
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
-
 import gym
 from trajopt.ilqr import iLQR
 
 # cartpole env
 env = gym.make('Quanser-Cartpole-TO-v0')
-env._max_episode_steps = 250
+env._max_episode_steps = 500
 
-alg = iLQR(env, nb_steps=250,
-           activation=range(200, 250))
+alg = iLQR(env, nb_steps=500,
+           activation={'shift': 450, 'mult': 2.})
 
 # run iLQR
 trace = alg.run()
