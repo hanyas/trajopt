@@ -16,7 +16,7 @@ class MFGPS:
 
     def __init__(self, env, nb_steps, kl_bound,
                  init_ctl_sigma,
-                 activation):
+                 activation=None):
 
         self.env = env
 
@@ -187,24 +187,24 @@ class MFGPS:
 
         # run init controller
         self.data = self.sample(nb_episodes)
+
         # fit time-variant linear dynamics
         self.dyn.learn(self.data)
+
         # current state distribution
         self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
+
+        # get quadratic cost around mean traj.
+        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+
         # mean objective under current ctrl.
         self.last_return = np.mean(np.sum(self.data['c'], axis=0))
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
-            # get quadratic cost around mean traj.
-            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
-
-            # mean objective under current ctrl.
-            _trace.append(np.mean(np.sum(self.data['c'], axis=0)))
-
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1e4]),
-                                       method='L-BFGS-B',
+            res = sc.optimize.minimize(self.dual, self.alpha,
+                                       method='SLSQP',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
                                        options={'disp': False, 'maxiter': 10000,
@@ -215,28 +215,12 @@ class MFGPS:
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
 
+            # current return
+            _return = np.mean(np.sum(self.data['c'], axis=0))
+
             # get expected improvment:
             xdist, udist, xudist = self.forward_pass(lgc)
             _expected_return = self.cost.evaluate(xdist.mu, udist.mu)
-
-            # check kl constraint
-            kl = self.kldiv(lgc, xdist)
-            if np.fabs(kl - self.kl_bound) < 0.1 * self.kl_bound:
-                # update controller
-                self.ctl = lgc
-                # update state-action dists.
-                self.xdist, self.udist, self.xudist = xdist, udist, xudist
-                # update value functions
-                self.vfunc, self.qfunc = xvalue, xuvalue
-                # run current controller
-                self.data = self.sample(nb_episodes)
-                # fit time-variant linear dynamics
-                self.dyn.learn(self.data)
-            else:
-                print("Something is wrong, KL not satisfied")
-
-            # current return
-            _return = np.mean(np.sum(self.data['c'], axis=0))
 
             # expected vs actual improvement
             _expected_imp = self.last_return - _expected_return
@@ -247,12 +231,38 @@ class MFGPS:
             _mult = np.maximum(0.1, np.minimum(5.0, _mult))
             self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
-            # update last return
-            self.last_return = _return
-            _trace.append(self.last_return)
+            # check kl constraint
+            kl = self.kldiv(lgc, xdist)
+            if (kl - self.kl_bound) < 0.25 * self.kl_bound:
+                # update controller
+                self.ctl = lgc
 
-            # # update kl bound
-            # self.kl_bound = self.kl_base * self.kl_mult
+                # update value functions
+                self.vfunc, self.qfunc = xvalue, xuvalue
+
+                # run current controller
+                self.data = self.sample(nb_episodes)
+
+                # fit time-variant linear dynamics
+                self.dyn.learn(self.data)
+
+                # current state distribution
+                self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
+
+                # get quadratic cost around mean traj.
+                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+
+                # mean objective under last dists.
+                _trace.append(_return)
+
+                # update last return to current
+                self.last_return = _return
+
+                # # update kl bound
+                # self.kl_bound = self.kl_base * self.kl_mult
+            else:
+                print("Something is wrong, KL not satisfied")
+                self.alpha = np.array([-1e4])
 
             if verbose:
                 print("iter: ", iter,

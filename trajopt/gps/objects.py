@@ -209,6 +209,8 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         return _A, _B, _c, _sigma
 
     def extended_kalman(self, lgc, ulim):
+        lgd = LinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
+
         pool = Pool(processes=-1)
 
         xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -226,7 +228,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
 
         res = pool.map(_loop, range(self.nb_steps))
         for t in range(self.nb_steps):
-            self.A[..., t], self.B[..., t], self.c[..., t], self.sigma[..., t] = res[t]
+            lgd.A[..., t], lgd.B[..., t], lgd.c[..., t], lgd.sigma[..., t] = res[t]
 
             # construct variace of next time step with extend Kalman filtering
             _mu_x, _sigma_x = xdist.mu[..., t], xdist.sigma[..., t]
@@ -237,15 +239,15 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
             _u_sigma = 0.5 * (_u_sigma + _u_sigma.T)
             udist.sigma[..., t] = _u_sigma
 
-            _AB = np.hstack((self.A[..., t], self.B[..., t]))
+            _AB = np.hstack((lgd.A[..., t], lgd.B[..., t]))
             _sigma_xu = np.vstack((np.hstack((_sigma_x, _sigma_x @ _K.T)),
                                    np.hstack((_K @ _sigma_x, _u_sigma))))
 
-            _sigma_xn = self.sigma[..., t] + _AB @ _sigma_xu @ _AB.T
+            _sigma_xn = lgd.sigma[..., t] + _AB @ _sigma_xu @ _AB.T
             _sigma_xn = 0.5 * (_sigma_xn + _sigma_xn.T)
             xdist.sigma[..., t + 1] = _sigma_xn
 
-        return xdist, udist
+        return xdist, udist, lgd
 
 
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):

@@ -16,7 +16,7 @@ class MBGPS:
 
     def __init__(self, env, nb_steps, kl_bound,
                  init_ctl_sigma,
-                 activation):
+                 activation=None):
 
         self.env = env
 
@@ -95,14 +95,14 @@ class MBGPS:
         return data
 
     def simulate(self, lgc):
-        xdist, udist = self.dyn.extended_kalman(lgc, self.ulim)
+        xdist, udist, lgd = self.dyn.extended_kalman(lgc, self.ulim)
 
         cost = np.zeros((self.nb_steps + 1, ))
         for t in range(self.nb_steps):
             cost[..., t] = self.env.unwrapped.cost(xdist.mu[..., t], udist.mu[..., t], self.weighting[t])
         cost[..., -1] = self.env.unwrapped.cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
 
-        return xdist, udist, cost
+        return xdist, udist, lgd, cost
 
     def forward_pass(self, lgc):
         xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -194,15 +194,19 @@ class MBGPS:
         _trace = []
 
         # get mena traj. and linear system dynamics
-        self.xdist, self.udist, _cost = self.simulate(self.ctl)
+        self.xdist, self.udist, lgd, _cost = self.simulate(self.ctl)
+
+        # update linearization of dynamics
+        self.dyn.params = lgd.A, lgd.B, lgd.c, lgd.sigma
+
+        # get quadratic cost around mean traj.
+        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+
         # mean objective under current dists.
         self.last_return = np.sum(_cost)
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
-            # get quadratic cost around mean traj.
-            self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
-
             # use scipy optimizer
             res = sc.optimize.minimize(self.dual, self.alpha,
                                        method='SLSQP',
@@ -215,7 +219,7 @@ class MBGPS:
             # re-compute after opt.
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
-            xdist, udist, _cost = self.simulate(lgc)
+            xdist, udist, lgd, _cost = self.simulate(lgc)
             _return = np.sum(_cost)
 
             # get expected improvment:
@@ -232,23 +236,34 @@ class MBGPS:
             self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
             # check kl constraint
-            kl = self.kldiv(lgc, xdist)
-            if np.fabs(kl - self.kl_bound) < (0.25 * self.kl_bound):
+            kl = self.kldiv(lgc, expected_xdist)
+            if (kl - self.kl_bound) < (0.25 * self.kl_bound):
                 # update controller
                 self.ctl = lgc
+
+                # update linearization of dynamics
+                self.dyn.params = lgd.A, lgd.B, lgd.c, lgd.sigma
+
                 # update state-action dists.
                 self.xdist, self.udist = xdist, udist
+
+                # update quadratic cost around mean traj.
+                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+
                 # update value functions
                 self.vfunc, self.qfunc = xvalue, xuvalue
+
                 # mean objective under last dists.
                 _trace.append(_return)
+
                 # update last return to current
                 self.last_return = _return
+
+                # update kl bound
+                self.kl_bound = self.kl_base * self.kl_mult
             else:
                 print("Something is wrong, KL not satisfied")
-
-            # # update kl bound
-            # self.kl_bound = self.kl_base * self.kl_mult
+                self.alpha = np.array([-1e4])
 
             if verbose:
                 print("iter: ", iter,
