@@ -149,7 +149,6 @@ class Base(gym.Env):
 
     def __init__(self, fs, fs_ctrl):
         """
-
         :param fs: frequency of observation
         :type fs: float
         :param fs_ctrl: frequency of control

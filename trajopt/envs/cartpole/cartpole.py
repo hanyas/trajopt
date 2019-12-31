@@ -19,15 +19,15 @@ class Cartpole(gym.Env):
 
         # g = [x, th, dx, dth]
         self._g = np.array([0., 2. * np.pi, 0., 0.])
-        self._gw = np.array([1e-1, 1e1, 1e0, 1e0])
+        self._gw = np.array([1e-1, 1e2, 1e0, 1e0])
 
         # x = [x, th, dx, dth]
-        self._xmax = np.array([5., np.inf, 5., 10.])
+        self._xmax = np.array([10., np.inf, 5., 10.])
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
         self._uw = np.array([1e-3])
-        self._umax = 10.0
+        self._umax = 5.0
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
@@ -107,7 +107,8 @@ class Cartpole(gym.Env):
     def cost(self, x, u, a):
         _J, _j = self.features_jacobian(getval(x))
         _x = _J(getval(x)) @ x + _j
-        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
+        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)\
+               + u.T @ np.diag(self._uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -135,7 +136,7 @@ class CartpoleWithCartesianCost(Cartpole):
 
         # g = [x, cs_th, sn_th, dx, dth]
         self._g = np.array([0., 1., 0., 0., 0.])
-        self._gw = np.array([1e-1, 1e1, 0., 1e-1, 1e-1])
+        self._gw = np.array([1e-1, 1e2, 0., 1e0, 1e0])
 
     def features(self, x):
         return np.array([x[0],

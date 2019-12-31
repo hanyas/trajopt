@@ -117,7 +117,8 @@ class Pendulum(gym.Env):
     def cost(self, x, u, a):
         _J, _j = self.features_jacobian(getval(x))
         _x = _J(getval(x)) @ x + _j
-        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g) + u.T @ np.diag(self._uw) @ u
+        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)\
+               + u.T @ np.diag(self._uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)

@@ -116,11 +116,9 @@ class SwingUpCtrl:
         self.pd_ctrl = PDCtrl(K=pd_gain)
 
     def __call__(self, obs):
-        th, al, th_d, al_d = obs
-        sin_th, cos_th = np.sin(th), np.cos(th)
-        sin_al, cos_al = np.sin(al), np.cos(al)
+        th, cos_al, sin_al, th_d, al_d = obs
 
-        x = np.r_[np.arctan2(sin_th, cos_th),
+        x = np.r_[th,
                   np.arctan2(sin_al, cos_al),
                   th_d, al_d]
         if self.pd_enabled(cos_al):

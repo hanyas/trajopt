@@ -13,7 +13,7 @@ class QubeBase(Base):
         act_max = np.array([5.0])
         state_max = np.array([2.0, np.inf, 30.0, 40.0])
         sens_max = np.array([2.3, np.inf])
-        obs_max = np.array([2.3, np.inf, state_max[2], state_max[3]])
+        obs_max = np.array([2.3, 1., 1., state_max[2], state_max[3]])
 
         # Spaces
         self.sensor_space = LabeledBox(
@@ -23,7 +23,7 @@ class QubeBase(Base):
             labels=('theta', 'alpha', 'theta_dot', 'alpha_dot'),
             low=-state_max, high=state_max, dtype=np.float32)
         self.observation_space = LabeledBox(
-            labels=('theta', 'alpha', 'th_d', 'al_d'),
+            labels=('theta', 'cos_al', 'sin_al', 'th_d', 'al_d'),
             low=-obs_max, high=obs_max, dtype=np.float32)
         self.action_space = LabeledBox(
             labels=('volts',),
@@ -49,7 +49,8 @@ class QubeBase(Base):
         return np.float32(rwd), False
 
     def _observation(self, state):
-        obs = np.float32([state[0], state[1],
+        obs = np.float32([state[0],
+                          np.cos(state[1]), np.sin(state[1]),
                           state[2], state[3]])
         return obs
 

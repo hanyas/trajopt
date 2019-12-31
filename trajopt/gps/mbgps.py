@@ -62,7 +62,8 @@ class MBGPS:
         if activation is None:
             self.weighting = np.ones((self.nb_steps + 1, ))
         else:
-            _t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+            # logistic activation
+            _t = np.linspace(0., self.nb_steps, self.nb_steps + 1)
             self.weighting = 1. / (1. + np.exp(- activation['mult'] * (_t - activation['shift'])))
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
