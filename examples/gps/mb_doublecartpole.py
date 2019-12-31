@@ -1,23 +1,15 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: mb_doublecartpole.py
-# @Date: 2019-06-16-18-38
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
-
 import gym
 from trajopt.gps import MBGPS
 
 
 # double cartpole env
 env = gym.make('DoubleCartpole-TO-v0')
-env._max_episode_steps = 200
+env._max_episode_steps = 500
 
-alg = MBGPS(env, nb_steps=200,
+alg = MBGPS(env, nb_steps=500,
             kl_bound=10.,
             init_ctl_sigma=5.0,
-            activation=range(150, 200))
+            activation={'shift': 450, 'mult': 2.})
 
 # run gps
 trace = alg.run()

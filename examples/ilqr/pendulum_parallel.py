@@ -10,11 +10,12 @@ nb_cores = multiprocessing.cpu_count()
 def create_job(kwargs):
     env = gym.make('Pendulum-TO-v0')
     env._max_episode_steps = 500
+    env.unwrapped._dt = 0.01
 
     alg = iLQR(env, nb_steps=500,
-               activation=range(450, 500))
+               activation={'shift': 450, 'mult': 2.})
 
-    alg.run(nb_iter=100)
+    alg.run(nb_iter=50)
 
     state, action, _ = alg.forward_pass(ctl=alg.ctl, alpha=1.)
     return state[:, :-1].T, action.T

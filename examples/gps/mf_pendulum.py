@@ -1,23 +1,16 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: mf_pendulum.py
-# @Date: 2019-06-16-18-38
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
-
 import gym
 from trajopt.gps import MFGPS
 
 
 # pendulum env
 env = gym.make('Pendulum-TO-v0')
-env._max_episode_steps = 150
+env._max_episode_steps = 100
+env.unwrapped._dt = 0.05
 
-alg = MFGPS(env, nb_steps=150,
-            kl_bound=25.,
-            init_ctl_sigma=1.0,
-            activation=range(100, 150))
+alg = MFGPS(env, nb_steps=100,
+            kl_bound=1.,
+            init_ctl_sigma=2.5,
+            activation={'shift': 90, 'mult': 2.})
 
 # run gps
 trace = alg.run(nb_episodes=10)

@@ -6,16 +6,17 @@ warnings.filterwarnings("ignore")
 
 
 # pendulum env
-env = gym.make('Pendulum-TO-v0')
+env = gym.make('Pendulum-TO-v1')
 env._max_episode_steps = 500
+env.unwrapped._dt = 0.01
 
 alg = MBGPS(env, nb_steps=500,
-            kl_bound=0.1,
-            init_ctl_sigma=10.0,
-            activation=range(450, 500))
+            kl_bound=0.01,
+            init_ctl_sigma=25.,
+            activation={'shift': 250, 'mult': 0.025})
 
 # run gps
-trace = alg.run(nb_iter=200)
+trace = alg.run(nb_iter=200, verbose=True)
 
 # plot dists
 alg.plot()
@@ -28,11 +29,7 @@ plt.plot(trace)
 plt.show()
 
 # sample and plot one trajectory
-import numpy as np
-
-alg.ctl.sigma = np.ones_like(alg.ctl.sigma) * 1e-2
-
-data = alg.sample(nb_episodes=1, stoch=True)
+data = alg.sample(nb_episodes=1, stoch=False)
 
 plt.figure()
 

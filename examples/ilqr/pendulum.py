@@ -6,14 +6,15 @@ warnings.filterwarnings("ignore")
 
 
 # pendulum env
-env = gym.make('Pendulum-TO-v0')
+env = gym.make('Pendulum-TO-v1')
 env._max_episode_steps = 500
+env.unwrapped._dt = 0.01
 
 alg = iLQR(env, nb_steps=500,
-           activation=range(450, 500))
+           activation={'shift': 250, 'mult': 0.025})
 
 # run iLQR
-trace = alg.run(nb_iter=10)
+trace = alg.run(nb_iter=50, verbose=True)
 
 # plot reference trajectory
 alg.plot()
@@ -25,7 +26,7 @@ plt.figure()
 plt.plot(trace)
 plt.show()
 
-state, action, _ = alg.forward_pass(ctl=alg.ctl, alpha=1.)
+state, action, _ = alg.forward_pass(ctl=alg.ctl, alpha=0.1)
 
 plt.figure()
 
