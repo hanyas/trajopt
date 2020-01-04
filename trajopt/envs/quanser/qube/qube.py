@@ -77,7 +77,7 @@ class Qube(QubeBase):
         self._sim_state[0] += self.timing.dt * self._sim_state[2]
 
         # apply state constraints
-        self._sim_state = np.clip(self._sim_state, self.observation_space.low, self.observation_space.high)
+        self._sim_state = np.clip(self._sim_state, self.state_space.low, self.state_space.high)
 
         # add observation noise
         self._sim_state = self._sim_state + np.random.randn(4) * 1e-4
