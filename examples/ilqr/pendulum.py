@@ -1,3 +1,5 @@
+import autograd.numpy as np
+
 import gym
 from trajopt.ilqr import iLQR
 
@@ -6,27 +8,36 @@ warnings.filterwarnings("ignore")
 
 
 # pendulum env
-env = gym.make('Pendulum-TO-v1')
-env._max_episode_steps = 500
-env.unwrapped._dt = 0.01
+env = gym.make('Pendulum-TO-v0')
+env._max_episode_steps = 100000
+env.unwrapped._dt = 0.05
 
-alg = iLQR(env, nb_steps=500,
-           activation={'shift': 250, 'mult': 0.025})
+dm_state = env.observation_space.shape[0]
+dm_act = env.action_space.shape[0]
 
-# run iLQR
-trace = alg.run(nb_iter=50, verbose=True)
+horizon, nb_steps = 10, 150
+state = np.zeros((dm_state, nb_steps + 1))
+action = np.zeros((dm_act, nb_steps))
+init_action = np.zeros((dm_act, horizon))
 
-# plot reference trajectory
-alg.plot()
+nb_iter = 5
 
-# plot objective
+state[:, 0] = env.reset()
+for t in range(nb_steps):
+    solver = iLQR(env, init_state=state[:, t],
+                  init_action=None, nb_steps=horizon)
+    trace = solver.run(nb_iter=nb_iter, verbose=False)
+
+    _nominal_state = solver.xref
+    _nominal_action = solver.uref
+
+    action[:, t] = _nominal_action[:, 0]
+    state[:, t + 1], _, _, _ = env.step(action[:, t])
+
+    init_action = np.hstack((_nominal_action[:, 1:], np.zeros((dm_act, 1))))
+    print('Time Step:', t, 'Cost:', trace[-1])
+
 import matplotlib.pyplot as plt
-
-plt.figure()
-plt.plot(trace)
-plt.show()
-
-state, action, _ = alg.forward_pass(ctl=alg.ctl, alpha=0.1)
 
 plt.figure()
 

@@ -54,10 +54,6 @@ class LQR(gym.Env):
     def goal(self):
         return self._g
 
-    def init(self):
-        # mu, sigma
-        return np.array([5., 5.]), 1e-4 * np.eye(2)
-
     def dynamics(self, x, u):
         _u = np.clip(u, -self._umax, self._umax)
 
@@ -112,6 +108,5 @@ class LQR(gym.Env):
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self.init()
-        self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
+        self.state = np.array([5., 5.])
         return self.state

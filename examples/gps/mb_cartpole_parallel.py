@@ -1,3 +1,5 @@
+import autograd.numpy as np
+
 import gym
 from trajopt.gps import MBGPS
 
@@ -6,36 +8,44 @@ from joblib import Parallel, delayed
 import multiprocessing
 nb_cores = multiprocessing.cpu_count()
 
-import numpy as np
-
-import warnings
-warnings.filterwarnings("ignore")
-
 
 def create_job(kwargs):
-    env = gym.make('Cartpole-TO-v1')
-    env._max_episode_steps = 500
+    import warnings
+    warnings.filterwarnings("ignore")
+
+    # cartpole env
+    env = gym.make('Cartpole-TO-v0')
+    env._max_episode_steps = 10000
     env.unwrapped._dt = 0.01
 
-    alg = MBGPS(env, nb_steps=500,
-                kl_bound=0.01,
-                init_ctl_sigma=50,
-                activation={'shift': 450, 'mult': 0.5})
+    dm_state = env.observation_space.shape[0]
+    dm_act = env.action_space.shape[0]
 
-    alg.run(nb_iter=250, verbose=True)
+    horizon, nb_steps = 50, 500
 
-    alg.ctl.sigma = 1e-2 * np.ones_like(alg.ctl.sigma)
-    data = alg.sample(nb_episodes=1, stoch=True)
+    state = np.zeros((dm_state, nb_steps + 1))
+    action = np.zeros((dm_act, nb_steps))
 
-    obs = np.atleast_2d(np.squeeze(data['x'])).T
-    act = np.atleast_2d(np.squeeze(data['u'])).T
+    state[:, 0] = env.reset()
+    for t in range(nb_steps):
+        solver = MBGPS(env, init_state=tuple([state[:, t], 1e-16 * np.eye(dm_state)]),
+                       init_action_sigma=5., nb_steps=horizon, kl_bound=0.1)
+        trace = solver.run(nb_iter=10, verbose=False)
 
-    return obs, act
+        _nominal_action = solver.udist.mu
+
+        action[:, t] = _nominal_action[:, 0]
+        state[:, t + 1], _, _, _ = env.step(action[:, t])
+
+        print('Time Step:', t, 'Cost:', trace[-1])
+
+    return state[:, :-1].T, action.T
 
 
 def parallel_gps(nb_jobs=50):
     kwargs_list = [{} for _ in range(nb_jobs)]
-    results = Parallel(n_jobs=min(nb_jobs, nb_cores), verbose=10, backend='loky')(map(delayed(create_job), kwargs_list))
+    results = Parallel(n_jobs=min(nb_jobs, nb_cores),
+                       verbose=10, backend='loky')(map(delayed(create_job), kwargs_list))
     obs, act = list(map(list, zip(*results)))
     return obs, act
 
@@ -55,4 +65,4 @@ obs, act = parallel_gps(nb_jobs=50)
 
 import pickle
 data = {'obs': obs, 'act': act}
-pickle.dump(data, open("gps_cartpole_cart.pkl", "wb"))
+pickle.dump(data, open("gps_cartpole_polar.pkl", "wb"))

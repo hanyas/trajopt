@@ -10,18 +10,19 @@ from trajopt.ilqr.core import backward_pass
 class iLQR:
 
     def __init__(self, env, nb_steps,
+                 init_state, init_action=None,
                  alphas=np.power(10., np.linspace(0, -3, 11)),
                  lmbda=1., dlmbda=1.,
                  min_lmbda=1e-6, max_lmbda=1e6, mult_lmbda=1.6,
                  tolfun=1e-6, tolgrad=1e-4, min_imp=0., reg=1,
-                 activation=None):
+                 discounting=1.):
 
         self.env = env
 
         # expose necessary functions
         self.env_dyn = self.env.unwrapped.dynamics
         self.env_cost = self.env.unwrapped.cost
-        self.env_init = self.env.unwrapped.init
+        self.env_init = init_state
 
         self.ulim = self.env.action_space.high
 
@@ -31,6 +32,8 @@ class iLQR:
 
         # backtracking
         self.alphas = alphas
+        self.alpha = None
+
         self.lmbda = lmbda
         self.dlmbda = dlmbda
         self.min_lmbda = min_lmbda
@@ -49,23 +52,26 @@ class iLQR:
 
         # reference trajectory
         self.xref = np.zeros((self.dm_state, self.nb_steps + 1))
-        self.xref[..., 0] = self.env_init()[0]
+        self.xref[..., 0] = self.env_init
 
         self.uref = np.zeros((self.dm_act, self.nb_steps))
 
         self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.dm_state, self.dm_act, self.nb_steps)
-        self.ctl = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
-        self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
+        self.dyn = AnalyticalLinearDynamics(self.env_dyn, self.dm_state, self.dm_act, self.nb_steps)
 
-        # activation of cost function in shape of sigmoid
-        if activation is None:
-            self.weighting = np.ones((self.nb_steps + 1, ))
+        self.ctl = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
+        if init_action is None:
+            self.ctl.kff = 1e-8 * np.random.randn(self.dm_act, self.nb_steps)
         else:
-            _t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (_t - activation['shift'])))
+            assert init_action.shape[1] == self.nb_steps
+            self.ctl.kff = init_action
+
+        # Discounting
+        self.weighting = np.ones((self.nb_steps + 1,))
+        _gamma = discounting * np.ones((self.nb_steps, ))
+        self.weighting[1:] = np.cumprod(_gamma)
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -76,14 +82,14 @@ class iLQR:
         action = np.zeros((self.dm_act, self.nb_steps))
         cost = np.zeros((self.nb_steps + 1, ))
 
-        state[..., 0] = self.env.reset()
+        state[..., 0] = self.env_init
         for t in range(self.nb_steps):
             _act = ctl.action(state, alpha, self.xref, self.uref, t)
             action[..., t] = np.clip(_act, -self.ulim, self.ulim)
-            cost[..., t] = self.env.unwrapped.cost(state[..., t], action[..., t], self.weighting[t])
-            state[..., t + 1], _, _, _ = self.env.step(action[..., t])
+            cost[..., t] = self.env_cost(state[..., t], action[..., t], self.weighting[t])
+            state[..., t + 1] = self.env_dyn(state[..., t], action[..., t])
 
-        cost[..., -1] = self.env.unwrapped.cost(state[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
+        cost[..., -1] = self.env_cost(state[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
         return state, action, cost
 
     def backward_pass(self):
@@ -170,8 +176,10 @@ class iLQR:
             fwdpass_done = False
             if backpass_done:
                 for alpha in self.alphas:
+                    self.alpha = alpha
+
                     # apply on actual system
-                    _state, _action, _cost = self.forward_pass(ctl=lc, alpha=alpha)
+                    _state, _action, _cost = self.forward_pass(ctl=lc, alpha=self.alpha)
 
                     # summed mean return
                     _return = np.sum(_cost)
@@ -180,7 +188,7 @@ class iLQR:
                     _dreturn = self.last_return - _return
                     _expected = - 1. * alpha * (dvalue[0] + alpha * dvalue[1])
                     _imp = _dreturn / _expected
-                    if _imp > self.min_imp:
+                    if _imp >= self.min_imp:
                         fwdpass_done = True
                         break
 

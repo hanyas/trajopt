@@ -7,6 +7,10 @@ from autograd import jacobian
 from autograd.tracer import getval
 
 
+def angle_normalize(x):
+    return ((x + np.pi) % (2. * np.pi)) - np.pi
+
+
 class Pendulum(gym.Env):
 
     def __init__(self):
@@ -15,19 +19,19 @@ class Pendulum(gym.Env):
 
         self._dt = 0.01
 
-        self._sigma = 1e-4 * np.eye(self.dm_state)
+        self._sigma = 1e-8 * np.eye(self.dm_state)
 
         # g = [th, thd]
-        self._g = np.array([2. * np.pi, 0.])
+        self._g = np.array([0., 0.])
         self._gw = np.array([1e0, 1e-1])
 
         # x = [th, thd]
-        self._xmax = np.array([np.inf, 8.0])
+        self._xmax = np.array([np.inf, 10.0])
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
         self._uw = np.array([1e-3])
-        self._umax = 2.5
+        self._umax = 3.
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
@@ -35,11 +39,6 @@ class Pendulum(gym.Env):
         self.np_random = None
 
         self.seed()
-
-        _low, _high = np.array([np.pi - np.pi / 18., -1.0]),\
-                      np.array([np.pi + np.pi / 18., 1.0])
-        self._x0 = self.np_random.uniform(low=_low, high=_high)
-        self._sigma_0 = 1e-4 * np.eye(self.dm_state)
 
     @property
     def xlim(self):
@@ -57,10 +56,6 @@ class Pendulum(gym.Env):
     def goal(self):
         return self._g
 
-    def init(self):
-        # mu, sigma
-        return self._x0, self._sigma_0
-
     def dynamics(self, x, u):
         _u = np.clip(u, -self._umax, self._umax)
 
@@ -68,7 +63,7 @@ class Pendulum(gym.Env):
 
         def f(x, u):
             th, dth = x
-            return np.hstack((dth, 3. * g / (2. * l) * np.sin(th) +
+            return np.hstack((dth, - 3. * g / (2. * l) * np.sin(th + np.pi) +
                               3. / (m * l ** 2) * (u - k * dth)))
 
         k1 = f(x, _u)
@@ -77,6 +72,8 @@ class Pendulum(gym.Env):
         k4 = f(x + self.dt * k3, _u)
 
         xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
+
+        xn = np.hstack((angle_normalize(xn[0]), xn[1]))
         xn = np.clip(xn, -self._xmax, self._xmax)
 
         return xn
@@ -88,7 +85,7 @@ class Pendulum(gym.Env):
 
         def f(x, u):
             th, dth = x
-            return np.hstack((dth, 3. * g / (2. * l) * np.sin(th) +
+            return np.hstack((dth, - 3. * g / (2. * l) * np.sin(th + np.pi) +
                               3. / (m * l ** 2) * (u - k * dth)))
 
         k1 = f(x, _u)
@@ -97,6 +94,8 @@ class Pendulum(gym.Env):
         k4 = f(x - self.dt * k3, _u)
 
         xn = x - self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
+
+        xn = np.hstack((angle_normalize(xn[0]), xn[1]))
         xn = np.clip(xn, -self._xmax, self._xmax)
 
         return xn
@@ -134,8 +133,10 @@ class Pendulum(gym.Env):
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self.init()
-        self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
+        _low, _high = np.array([np.pi - np.pi / 18., -0.1]),\
+                      np.array([np.pi + np.pi / 18., 0.1])
+        _x0 = self.np_random.uniform(low=_low, high=_high)
+        self.state = np.hstack((angle_normalize(_x0[0]), _x0[1]))
         return self.state
 
 
@@ -146,7 +147,7 @@ class PendulumWithCartesianCost(Pendulum):
 
         # g = [cs_th, sn_th, dth]
         self._g = np.array([1., 0., 0.])
-        self._gw = np.array([1e1, 0., 1e-1])
+        self._gw = np.array([1e0, 1e0, 1e-1])
 
     def features(self, x):
         return np.array([np.cos(x[0]), np.sin(x[0]), x[1]])

@@ -7,8 +7,7 @@ from trajopt.riccati.objects import LinearControl
 
 class Riccati:
 
-    def __init__(self, env, nb_steps,
-                 activation=range(-1, 0)):
+    def __init__(self, env, nb_steps):
 
         self.env = env
 
@@ -33,10 +32,8 @@ class Riccati:
         self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.dm_state, self.dm_act, self.nb_steps)
         self.ctl = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
 
-        # activation of cost function
-        self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
-        self.activation[-1] = 1.  # last step always in
-        self.activation[activation] = 1.
+        # activation of cost function in shape of sigmoid
+        self.weighting = np.ones((self.nb_steps + 1, ))
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -48,10 +45,10 @@ class Riccati:
         state[..., 0], _ = self.dyn.evali()
         for t in range(self.nb_steps):
             action[..., t] = ctl.action(state[..., t], t)
-            cost[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
+            cost[..., t] = self.cost.evalf(state[..., t], action[..., t], self.weighting[t])
             state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
 
-        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
+        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
         return state, action, cost
 
     def backward_pass(self):
@@ -103,7 +100,7 @@ class Riccati:
         self.dyn.taylor_expansion(self.xref, self.uref)
 
         # get quadratic cost around ref traj.
-        self.cost.taylor_expansion(self.xref, self.uref, self.activation)
+        self.cost.taylor_expansion(self.xref, self.uref, self.weighting)
 
         # backward pass to get ctrl.
         self.ctl, self.vfunc = self.backward_pass()

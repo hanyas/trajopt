@@ -184,18 +184,14 @@ class LinearGaussianDynamics:
 
 
 class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
-    def __init__(self, f_init, f_dyn, noise, dm_state, dm_act, nb_steps):
+    def __init__(self, f_dyn, noise, dm_state, dm_act, nb_steps):
         super(AnalyticalLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
 
-        self.i = f_init
         self.f = f_dyn
         self.noise = noise
 
         self.dfdx = jacobian(self.f, 0)
         self.dfdu = jacobian(self.f, 1)
-
-    def evali(self):
-        return self.i()
 
     def evalf(self, x, u):
         return self.f(x, u)
@@ -208,7 +204,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         _sigma = self.noise(x, u)
         return _A, _B, _c, _sigma
 
-    def extended_kalman(self, lgc, ulim):
+    def extended_kalman(self, init_state, lgc, ulim):
         lgd = LinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
 
         pool = Pool(processes=-1)
@@ -217,7 +213,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         udist = Gaussian(self.dm_act, self.nb_steps)
 
         # forward propagation of mean dynamics
-        xdist.mu[..., 0], xdist.sigma[..., 0] = self.evali()
+        xdist.mu[..., 0], xdist.sigma[..., 0] = init_state
         for t in range(self.nb_steps):
             udist.mu[..., t] = np.clip(lgc.mean(xdist.mu[..., t], t), - ulim, ulim)
             xdist.mu[..., t + 1] = self.evalf(xdist.mu[..., t], udist.mu[..., t])
@@ -301,9 +297,12 @@ class LinearGaussianControl:
         self.K = np.zeros((self.dm_act, self.dm_state, self.nb_steps))
         self.kff = np.zeros((self.dm_act, self.nb_steps))
 
-        self.sigma = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
-        for t in range(self.nb_steps):
-            self.sigma[..., t] = init_ctl_sigma * np.eye(self.dm_act)
+        if isinstance(init_ctl_sigma, float):
+            self.sigma = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
+            for t in range(self.nb_steps):
+                self.sigma[..., t] = init_ctl_sigma * np.eye(self.dm_act)
+        else:
+            self.sigma = init_ctl_sigma
 
     @property
     def params(self):

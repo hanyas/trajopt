@@ -7,6 +7,10 @@ from autograd import jacobian
 from autograd.tracer import getval
 
 
+def angle_normalize(x):
+    return ((x + np.pi) % (2. * np.pi)) - np.pi
+
+
 class Cartpole(gym.Env):
 
     def __init__(self):
@@ -15,10 +19,10 @@ class Cartpole(gym.Env):
 
         self._dt = 0.01
 
-        self._sigma = 1e-4 * np.eye(self.dm_state)
+        self._sigma = 1e-8 * np.eye(self.dm_state)
 
         # g = [x, th, dx, dth]
-        self._g = np.array([0., 2. * np.pi, 0., 0.])
+        self._g = np.array([0., 0., 0., 0.])
         self._gw = np.array([1e-1, 1e2, 1e0, 1e0])
 
         # x = [x, th, dx, dth]
@@ -36,11 +40,6 @@ class Cartpole(gym.Env):
 
         self.seed()
 
-        _low, _high = np.array([-0.1, np.pi - np.pi / 18., -0.1, -1.0]),\
-                      np.array([0.1, np.pi + np.pi / 18., 0.1, 1.0])
-        self._x0 = self.np_random.uniform(low=_low, high=_high)
-        self._sigma_0 = 1e-4 * np.eye(self.dm_state)
-
     @property
     def xlim(self):
         return self._xmax
@@ -57,10 +56,6 @@ class Cartpole(gym.Env):
     def goal(self):
         return self._g
 
-    def init(self):
-        # mu, sigma
-        return self._x0, self._sigma_0
-
     def dynamics(self, x, u):
         _u = np.clip(u, -self._umax, self._umax)
 
@@ -72,22 +67,28 @@ class Cartpole(gym.Env):
         Mt = Mc + Mp
         l = 0.3365
 
-        th = x[1]
-        dth2 = np.power(x[3], 2)
-        sth = np.sin(th)
-        cth = np.cos(th)
+        def f(x, u):
+            th = x[1]
+            dth2 = np.power(x[3], 2)
+            sth = np.sin(th)
+            cth = np.cos(th)
 
-        _num = g * sth + cth * (- _u - Mp * l * dth2 * sth) / Mt
-        _denom = l * ((4. / 3.) - Mp * cth**2 / Mt)
-        th_acc = _num / _denom
+            _num = g * sth + cth * (- u - Mp * l * dth2 * sth) / Mt
+            _denom = l * ((4. / 3.) - Mp * cth**2 / Mt)
+            th_acc = _num / _denom
 
-        x_acc = (_u + Mp * l * (dth2 * sth - th_acc * cth)) / Mt
+            x_acc = (u + Mp * l * (dth2 * sth - th_acc * cth)) / Mt
 
-        xn = np.hstack((x[0] + self._dt * x[2],
-                        x[1] + self._dt * x[3],
-                        x[2] + self._dt * x_acc,
-                        x[3] + self._dt * th_acc))
+            return np.hstack((x[2], x[3], x_acc, th_acc))
 
+        c1 = f(x, _u)
+        c2 = f(x + 0.5 * self.dt * c1, _u)
+        c3 = f(x + 0.5 * self.dt * c2, _u)
+        c4 = f(x + self.dt * c3, _u)
+
+        xn = x + self.dt / 6. * (c1 + 2. * c2 + 2. * c3 + c4)
+
+        xn = np.hstack((xn[0], angle_normalize(xn[1]), xn[2], xn[3]))
         xn = np.clip(xn, -self._xmax, self._xmax)
         return xn
 
@@ -124,8 +125,10 @@ class Cartpole(gym.Env):
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self.init()
-        self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
+        _low, _high = np.array([-0.1, np.pi - np.pi / 18., -0.1, -0.1]),\
+                      np.array([0.1, np.pi + np.pi / 18., 0.1, 0.1])
+        _x0 = self.np_random.uniform(low=_low, high=_high)
+        self.state = np.hstack((_x0[0], angle_normalize(_x0[1]), _x0[2], _x0[3]))
         return self.state
 
 
@@ -136,7 +139,7 @@ class CartpoleWithCartesianCost(Cartpole):
 
         # g = [x, cs_th, sn_th, dx, dth]
         self._g = np.array([0., 1., 0., 0., 0.])
-        self._gw = np.array([1e-1, 1e2, 0., 1e0, 1e0])
+        self._gw = np.array([1e-1, 1e2, 1e2, 1e0, 1e0])
 
     def features(self, x):
         return np.array([x[0],

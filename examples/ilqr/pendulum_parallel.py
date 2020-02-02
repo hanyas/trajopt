@@ -1,3 +1,5 @@
+import autograd.numpy as np
+
 import gym
 from trajopt.ilqr import iLQR
 
@@ -8,22 +10,40 @@ nb_cores = multiprocessing.cpu_count()
 
 
 def create_job(kwargs):
+    import warnings
+    warnings.filterwarnings("ignore")
+
+    # pendulum env
     env = gym.make('Pendulum-TO-v0')
-    env._max_episode_steps = 500
+    env._max_episode_steps = 100000
     env.unwrapped._dt = 0.01
 
-    alg = iLQR(env, nb_steps=500,
-               activation={'shift': 450, 'mult': 2.})
+    dm_state = env.observation_space.shape[0]
+    dm_act = env.action_space.shape[0]
 
-    alg.run(nb_iter=50)
+    horizon, nb_steps = 50, 500
+    state = np.zeros((dm_state, nb_steps + 1))
+    action = np.zeros((dm_act, nb_steps))
 
-    state, action, _ = alg.forward_pass(ctl=alg.ctl, alpha=1.)
+    state[:, 0] = env.reset()
+    for t in range(nb_steps):
+        solver = iLQR(env, init_state=state[:, t],
+                      init_action=None, nb_steps=horizon)
+        solver.run(nb_iter=10, verbose=False)
+
+        _nominal_state = solver.xref
+        _nominal_action = solver.uref
+
+        action[:, t] = _nominal_action[:, 0]
+        state[:, t + 1], _, _, _ = env.step(action[:, t])
+
     return state[:, :-1].T, action.T
 
 
 def parallel_ilqr(nb_jobs=50):
     kwargs_list = [{} for _ in range(nb_jobs)]
-    results = Parallel(n_jobs=min(nb_jobs, nb_cores), verbose=10, backend='loky')(map(delayed(create_job), kwargs_list))
+    results = Parallel(n_jobs=min(nb_jobs, nb_cores),
+                       verbose=10, backend='loky')(map(delayed(create_job), kwargs_list))
     obs, act = list(map(list, zip(*results)))
     return obs, act
 

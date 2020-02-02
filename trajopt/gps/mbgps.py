@@ -14,9 +14,9 @@ from trajopt.gps.core import forward_pass, backward_pass
 
 class MBGPS:
 
-    def __init__(self, env, nb_steps, kl_bound,
-                 init_ctl_sigma,
-                 activation=None):
+    def __init__(self, env, nb_steps,
+                 init_state, init_action_sigma=1.,
+                 kl_bound=0.1, discounting=1.):
 
         self.env = env
 
@@ -24,7 +24,7 @@ class MBGPS:
         self.env_dyn = self.env.unwrapped.dynamics
         self.env_noise = self.env.unwrapped.noise
         self.env_cost = self.env.unwrapped.cost
-        self.env_init = self.env.unwrapped.init
+        self.env_init = init_state
 
         self.ulim = self.env.action_space.high
 
@@ -45,7 +45,7 @@ class MBGPS:
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
-        self.xdist.mu[..., 0], self.xdist.sigma[..., 0] = self.env_init()
+        self.xdist.mu[..., 0], self.xdist.sigma[..., 0] = self.env_init
 
         self.udist = Gaussian(self.dm_act, self.nb_steps)
         self.xudist = Gaussian(self.dm_state + self.dm_act, self.nb_steps + 1)
@@ -53,55 +53,28 @@ class MBGPS:
         self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        self.dyn = AnalyticalLinearGaussianDynamics(self.env_init, self.env_dyn, self.env_noise,
+        self.dyn = AnalyticalLinearGaussianDynamics(self.env_dyn, self.env_noise,
                                                     self.dm_state, self.dm_act, self.nb_steps)
-        self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_ctl_sigma)
+
+        self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
         self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
 
-        # activation of cost function in shape of sigmoid
-        if activation is None:
-            self.weighting = np.ones((self.nb_steps + 1, ))
-        else:
-            # logistic activation
-            _t = np.linspace(0., self.nb_steps, self.nb_steps + 1)
-            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (_t - activation['shift'])))
+        # Discounting
+        self.weighting = np.ones((self.nb_steps + 1,))
+        _gamma = discounting * np.ones((self.nb_steps, ))
+        self.weighting[1:] = np.cumprod(_gamma)
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
         self.last_return = - np.inf
 
-    def sample(self, nb_episodes, stoch=True):
-        data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
-                'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
-                'xn': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
-                'c': np.zeros((self.nb_steps + 1, nb_episodes))}
-
-        for n in range(nb_episodes):
-            x = self.env.reset()
-
-            for t in range(self.nb_steps):
-                u = self.ctl.sample(x, t, stoch)
-                u = np.clip(u, -self.ulim, self.ulim)
-                data['u'][..., t, n] = u
-
-                # expose true reward function
-                data['c'][t] = self.env.unwrapped.cost(x, u, self.weighting[t])
-
-                data['x'][..., t, n] = x
-                x, _, _, _ = self.env.step(u)
-                data['xn'][..., t, n] = x
-
-            data['c'][-1, n] = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.weighting[-1])
-
-        return data
-
     def simulate(self, lgc):
-        xdist, udist, lgd = self.dyn.extended_kalman(lgc, self.ulim)
+        xdist, udist, lgd = self.dyn.extended_kalman(self.env_init, lgc, self.ulim)
 
         cost = np.zeros((self.nb_steps + 1, ))
         for t in range(self.nb_steps):
-            cost[..., t] = self.env.unwrapped.cost(xdist.mu[..., t], udist.mu[..., t], self.weighting[t])
-        cost[..., -1] = self.env.unwrapped.cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
+            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t], self.weighting[t])
+        cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
 
         return xdist, udist, lgd, cost
 
