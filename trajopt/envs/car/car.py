@@ -22,6 +22,7 @@ class Car(gym.Env):
         # belief cost weights
         self._bw = np.array([1., 1., 1., 1.])
         self._vw = np.array([1., 1., 1., 1.])
+
         # action cost weights
         self._uw = np.array([1., 1.])
 
@@ -30,13 +31,16 @@ class Car(gym.Env):
         self._umax = np.array([np.inf, np.inf])
 
         self._state_space = spaces.Box(low=-self._xmax,
-                                      high=self._xmax)
+                                       high=self._xmax)
 
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax)
 
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
+
+        self.state = None
+        self.np_random = None
 
         self.seed()
         self.reset()
@@ -68,7 +72,7 @@ class Car(gym.Env):
         return _b0, _sigma_b0
 
     def dynamics(self, x, u):
-        _u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self.ulim, self.ulim)
         # x, y, th, v
         xn = x + self._dt * np.array([x[3] * np.cos(x[2]),
                                       x[3] * np.sin(x[2]),
@@ -78,8 +82,8 @@ class Car(gym.Env):
         return xn
 
     def dyn_noise(self, x=None, u=None):
-        _u = np.clip(u, -self._umax, self._umax)
-        _x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self.ulim, self.ulim)
+        _x = np.clip(x, -self.xlim, self.xlim)
         return 1e-4 * np.eye(self.dm_state)
 
     def observe(self, x):

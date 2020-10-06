@@ -27,13 +27,16 @@ class LightDark(gym.Env):
         self._umax = np.array([np.inf, np.inf])
 
         self._state_space = spaces.Box(low=-self._xmax,
-                                      high=self._xmax)
+                                       high=self._xmax)
 
         self.observation_space = spaces.Box(low=-self._zmax,
                                             high=self._zmax)
 
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax)
+
+        self.state = None
+        self.np_random = None
 
         self.seed()
         self.reset()
@@ -66,14 +69,14 @@ class LightDark(gym.Env):
         return _b0, _sigma_b0
 
     def dynamics(self, x, u):
-        _u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self.ulim, self.ulim)
         xn = x + self._dt * _u
-        xn = np.clip(xn, -self._xmax, self._xmax)
+        xn = np.clip(xn, -self.xlim, self.xlim)
         return xn
 
     def dyn_noise(self, x=None, u=None):
-        _x = np.clip(x, -self._xmax, self._xmax)
-        _u = np.clip(u, -self._umax, self._umax)
+        _x = np.clip(x, -self.xlim, self.xlim)
+        _u = np.clip(u, -self.ulim, self.ulim)
         return 1e-8 * np.eye(self.dm_state)
 
     def observe(self, x):
