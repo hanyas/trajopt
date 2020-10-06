@@ -105,11 +105,11 @@ class Cartpole(gym.Env):
         _x = np.clip(x, -self.xlim, self.xlim)
         return self._sigma
 
-    def cost(self, x, u, u_nxt):
+    def cost(self, x, u, u_lst):
         _J, _j = self.features_jacobian(getval(x))
         _x = _J(getval(x)) @ x + _j
         return self.dt * ((_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)
-                          + (u - u_nxt).T @ np.diag(self._uw) @ (u - u_nxt))
+                          + (u - u_lst).T @ np.diag(self._uw) @ (u - u_lst))
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
