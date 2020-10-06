@@ -14,14 +14,14 @@ def create_job(kwargs):
     warnings.filterwarnings("ignore")
 
     # pendulum env
-    env = gym.make('Pendulum-TO-v0')
+    env = gym.make('Pendulum-TO-v1')
     env._max_episode_steps = 100000
-    env.unwrapped._dt = 0.01
+    env.unwrapped._dt = 0.05
 
     dm_state = env.observation_space.shape[0]
     dm_act = env.action_space.shape[0]
 
-    horizon, nb_steps = 50, 500
+    horizon, nb_steps = 15, 150
     state = np.zeros((dm_state, nb_steps + 1))
     action = np.zeros((dm_act, nb_steps))
 
@@ -31,9 +31,7 @@ def create_job(kwargs):
                       init_action=None, nb_steps=horizon)
         solver.run(nb_iter=10, verbose=False)
 
-        _nominal_state = solver.xref
         _nominal_action = solver.uref
-
         action[:, t] = _nominal_action[:, 0]
         state[:, t + 1], _, _, _ = env.step(action[:, t])
 

@@ -8,19 +8,20 @@ warnings.filterwarnings("ignore")
 
 
 # pendulum env
-env = gym.make('Pendulum-TO-v0')
+env = gym.make('Pendulum-TO-v1')
 env._max_episode_steps = 100000
 env.unwrapped._dt = 0.05
 
 dm_state = env.observation_space.shape[0]
 dm_act = env.action_space.shape[0]
 
-horizon, nb_steps = 10, 150
+horizon, nb_steps = 15, 150
 state = np.zeros((dm_state, nb_steps + 1))
 action = np.zeros((dm_act, nb_steps))
+
 init_action = np.zeros((dm_act, horizon))
 
-nb_iter = 5
+nb_iter = 10
 
 state[:, 0] = env.reset()
 for t in range(nb_steps):
@@ -28,9 +29,7 @@ for t in range(nb_steps):
                   init_action=None, nb_steps=horizon)
     trace = solver.run(nb_iter=nb_iter, verbose=False)
 
-    _nominal_state = solver.xref
     _nominal_action = solver.uref
-
     action[:, t] = _nominal_action[:, 0]
     state[:, t + 1], _, _, _ = env.step(action[:, t])
 
