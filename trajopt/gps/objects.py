@@ -114,7 +114,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
         pool = Pool(processes=-1)
 
         def _loop(t):
-            _in = tuple([x[..., t], _u[..., t], _u[..., t + 1] if t + 1 < self.nb_steps else np.zeros((self.dm_act, ))])
+            _in = tuple([x[..., t], _u[..., t], _u[..., t - 1]])
             _dcdxx = self.dcdxx(*_in)
             _dcduu = self.dcduu(*_in)
             _dcdxu = self.dcdxu(*_in)

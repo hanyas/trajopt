@@ -69,8 +69,7 @@ class MBGPS:
 
         cost = np.zeros((self.nb_steps + 1, ))
         for t in range(self.nb_steps):
-            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t],
-                                         udist.mu[..., t + 1] if t + 1 < self.nb_steps else np.zeros((self.dm_act, )))
+            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t], udist.mu[..., t - 1])
         cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), np.zeros((self.dm_act, )))
 
         return xdist, udist, lgd, cost
