@@ -31,7 +31,7 @@ def create_job(kwargs):
     state[:, 0] = env.reset()
     for t in range(nb_steps):
         solver = MBGPS(env, init_state=tuple([state[:, t], env_sigma]),
-                       init_action_sigma=1., nb_steps=horizon, kl_bound=1.)
+                       init_action_sigma=1., nb_steps=horizon, kl_bound=2.)
         trace = solver.run(nb_iter=10, verbose=False)
 
         _act = solver.ctl.sample(state[:, t], 0, stoch=False)
