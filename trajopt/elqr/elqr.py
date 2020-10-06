@@ -8,7 +8,7 @@ from trajopt.elqr.objects import LinearControl
 class eLQR:
 
     def __init__(self, env, nb_steps,
-                 activation=range(-1, 0)):
+                 init_state):
 
         self.env = env
 
@@ -16,8 +16,8 @@ class eLQR:
         self.env_dyn = self.env.unwrapped.dynamics
         self.env_inv_dyn = self.env.unwrapped.inverse_dynamics
         self.env_cost = self.env.unwrapped.cost
-        self.env_init = self.env.unwrapped.init
         self.env_goal = self.env.unwrapped.goal
+        self.env_init = init_state
 
         self.ulim = self.env.action_space.high
 
@@ -27,7 +27,7 @@ class eLQR:
 
         # reference trajectory
         self.xref = np.zeros((self.dm_state, self.nb_steps + 1))
-        self.xref[..., 0] = self.env_init()[0]
+        self.xref[..., 0] = self.env_init
 
         self.uref = np.zeros((self.dm_act, self.nb_steps))
 
@@ -37,19 +37,14 @@ class eLQR:
         self.gocost.V[..., 0] += np.eye(self.dm_state) * 1e-16
         self.comecost.V[..., 0] += np.eye(self.dm_state) * 1e-16
 
-        self.dyn = AnalyticalLinearDynamics(self.env_init, self.env_dyn, self.dm_state, self.dm_act, self.nb_steps)
-        self.idyn = AnalyticalLinearDynamics(self.env_init, self.env_inv_dyn, self.dm_state, self.dm_act, self.nb_steps)
+        self.dyn = AnalyticalLinearDynamics(self.env_dyn, self.dm_state, self.dm_act, self.nb_steps)
+        self.idyn = AnalyticalLinearDynamics(self.env_inv_dyn, self.dm_state, self.dm_act, self.nb_steps)
 
         self.ctl = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
         self.ctl.kff = np.random.randn(self.dm_act, self.nb_steps)
 
         self.ictl = LinearControl(self.dm_state, self.dm_act, self.nb_steps)
         self.ictl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
-
-        # activation of cost function
-        self.activation = np.zeros((self.nb_steps + 1,), dtype=np.int64)
-        self.activation[-1] = 1.  # last step always in
-        self.activation[activation] = 1.
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -60,13 +55,13 @@ class eLQR:
         action = np.zeros((self.dm_act, self.nb_steps))
         cost = np.zeros((self.nb_steps + 1,))
 
-        state[..., 0], _ = self.dyn.evali()
+        state[..., 0] = self.env_init
         for t in range(self.nb_steps):
             action[..., t] = ctl.action(state[..., t], t)
-            cost[..., t] = self.cost.evalf(state[..., t], action[..., t], self.activation[t])
+            cost[..., t] = self.cost.evalf(state[..., t], action[..., t], None)
             state[..., t + 1] = self.dyn.evalf(state[..., t], action[..., t])
 
-        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.dm_act, )), self.activation[-1])
+        cost[..., -1] = self.cost.evalf(state[..., -1], np.zeros((self.dm_act, )), None)
         return state, action, cost
 
     def forward_lqr(self, state):
@@ -79,7 +74,7 @@ class eLQR:
             _A, _B, _c = self.idyn.taylor_expansion(_state_n, _action)
 
             # quadratize cost
-            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.taylor_expansion(state, _action, self.activation[..., t])
+            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.taylor_expansion(state, _action, None)
 
             # forward value
             _Qxx = _A.T @ (_Cxx + self.comecost.V[..., t]) @ _A
@@ -117,7 +112,7 @@ class eLQR:
     def backward_lqr(self, state):
         # quadratize last cost
         _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 =\
-            self.cost.taylor_expansion(state, np.zeros((self.dm_act, )), self.activation[..., -1])
+            self.cost.taylor_expansion(state, np.zeros((self.dm_act, )), None)
 
         self.gocost.V[..., -1] = _Cxx
         self.gocost.v[..., -1] = _cx
@@ -134,7 +129,7 @@ class eLQR:
             _A, _B, _c = self.dyn.taylor_expansion(_state_n, _action)
 
             # quadratize cost
-            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.taylor_expansion(_state_n, _action, self.activation[..., t])
+            _Cxx, _Cuu, _Cxu, _cx, _cu, _c0 = self.cost.taylor_expansion(_state_n, _action, None)
 
             # backward value
             _Qxx = _Cxx + _A.T @ self.gocost.V[..., t + 1] @ _A
@@ -189,7 +184,7 @@ class eLQR:
         # return around current traj.
         _trace.append(np.sum(_cost))
 
-        _state, _ = self.dyn.evali()
+        _state = self.env_init
         for _ in range(nb_iter):
             # forward lqr
             _state = self.forward_lqr(_state)
