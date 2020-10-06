@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: lqr.py
-# @Date: 2019-06-28-17-30
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
-
 import gym
 from trajopt.elqr import eLQR
 

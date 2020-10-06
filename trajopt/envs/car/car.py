@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: ndrobot
-# @Date: 2019-06-25-09-09
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
 import gym
 from gym import spaces
 from gym.utils import seeding

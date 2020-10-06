@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# @Filename: objects.py
-# @Date: 2019-06-22-15-01
-# @Author: Hany Abdulsamad
-# @Contact: hany@robot-learning.de
-
 import autograd.numpy as np
 from autograd import jacobian, hessian
 from copy import deepcopy
