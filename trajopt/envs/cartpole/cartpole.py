@@ -19,7 +19,7 @@ class Cartpole(gym.Env):
 
         self._dt = 0.01
 
-        self._sigma = 1e-8 * np.eye(self.dm_state)
+        self._sigma = 1e-4 * np.eye(self.dm_state)
 
         # g = [x, th, dx, dth]
         self._g = np.array([0., 0., 0., 0.])
@@ -57,7 +57,7 @@ class Cartpole(gym.Env):
         return self._g
 
     def dynamics(self, x, u):
-        _u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self.ulim, self.ulim)
 
         # Equations: http://coneural.org/florian/papers/05_cart_pole.pdf
         # x = [x, th, dx, dth]
@@ -89,7 +89,7 @@ class Cartpole(gym.Env):
         xn = x + self.dt / 6. * (c1 + 2. * c2 + 2. * c3 + c4)
 
         xn = np.hstack((xn[0], angle_normalize(xn[1]), xn[2], xn[3]))
-        xn = np.clip(xn, -self._xmax, self._xmax)
+        xn = np.clip(xn, -self.xlim, self.xlim)
         return xn
 
     def features(self, x):
@@ -101,15 +101,15 @@ class Cartpole(gym.Env):
         return _J, _j
 
     def noise(self, x=None, u=None):
-        _u = np.clip(u, -self._umax, self._umax)
-        _x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self.ulim, self.ulim)
+        _x = np.clip(x, -self.xlim, self.xlim)
         return self._sigma
 
-    def cost(self, x, u, a):
+    def cost(self, x, u, u_nxt):
         _J, _j = self.features_jacobian(getval(x))
         _x = _J(getval(x)) @ x + _j
-        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)\
-               + u.T @ np.diag(self._uw) @ u
+        return self.dt * ((_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)
+                          + (u - u_nxt).T @ np.diag(self._uw) @ (u - u_nxt))
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)

@@ -7,6 +7,10 @@ from autograd import jacobian
 from autograd.tracer import getval
 
 
+def angle_normalize(x):
+    return ((x + np.pi) % (2. * np.pi)) - np.pi
+
+
 class DoubleCartpole(gym.Env):
 
     def __init__(self):
@@ -15,25 +19,20 @@ class DoubleCartpole(gym.Env):
 
         self._dt = 0.01
 
-        # x = [x, th1, th2, dx, dth1, dth2]
-        self._g = np.array([0., 2. * np.pi, 0., 0., 0., 0.])
-
-        self._x0 = np.array([0., np.pi, 0., 0., 0., 0.])
-        self._sigma_0 = 1e-4 * np.eye(self.dm_state)
-
         self._sigma = 1e-4 * np.eye(self.dm_state)
 
+        # x = [x, th1, th2, dx, dth1, dth2]
+        self._g = np.array([0., 2. * np.pi, 0., 0., 0., 0.])
         self._gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1e-1])
-        self._uw = np.array([1e-3])
 
         self._xmax = np.array([10., np.inf, np.inf, 25., 25., 25.])
-        self._umax = 5.0
-
-        self.action_space = spaces.Box(low=-self._umax,
-                                       high=self._umax, shape=(1,))
-
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
+
+        self._uw = np.array([1e-3])
+        self._umax = 5.0
+        self.action_space = spaces.Box(low=-self._umax,
+                                       high=self._umax, shape=(1,))
 
         self.state = None
         self.np_random = None
@@ -56,12 +55,8 @@ class DoubleCartpole(gym.Env):
     def goal(self):
         return self._g
 
-    def init(self):
-        # mu, sigma
-        return self._x0, self._sigma_0
-
     def dynamics(self, x, u):
-        _u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self.ulim, self.ulim)
 
         # import from: https://github.com/JoeMWatson/input-inference-for-control/
         """
@@ -149,7 +144,7 @@ class DoubleCartpole(gym.Env):
 
         xn = np.hstack((x_pos, x_dot))
 
-        xn = np.clip(xn, -self._xmax, self._xmax)
+        xn = np.clip(xn, -self.xlim, self.xlim)
         return xn
 
     def features(self, x):
@@ -161,15 +156,15 @@ class DoubleCartpole(gym.Env):
         return _J, _j
 
     def noise(self, x=None, u=None):
-        _u = np.clip(u, -self._umax, self._umax)
-        _x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self.ulim, self.ulim)
+        _x = np.clip(x, -self.xlim, self.xlim)
         return self._sigma
 
-    def cost(self, x, u, a):
+    def cost(self, x, u, u_nxt):
         _J, _j = self.features_jacobian(getval(x))
         _x = _J(getval(x)) @ x + _j
-        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)\
-               + u.T @ np.diag(self._uw) @ u
+        return self.dt * ((_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)
+                          + (u - u_nxt).T @ np.diag(self._uw) @ (u - u_nxt))
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -185,8 +180,13 @@ class DoubleCartpole(gym.Env):
         return self.state, [], False, {}
 
     def reset(self):
-        _mu_0, _sigma_0 = self.init()
-        self.state = self.np_random.multivariate_normal(mean=_mu_0, cov=_sigma_0)
+        _low, _high = np.array([0., np.pi - np.pi / 18., np.pi - np.pi / 18., 0., -0.1, -0.1]),\
+                      np.array([0., np.pi + np.pi / 18., np.pi + np.pi / 18., 0., 0.1, 0.1])
+        _x0 = self.np_random.uniform(low=_low, high=_high)
+        self.state = np.hstack((_x0[0],
+                                angle_normalize(_x0[1]),
+                                angle_normalize(_x0[2]),
+                                _x0[3], _x0[4], _x0[5]))
         return self.state
 
 

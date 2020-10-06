@@ -19,7 +19,7 @@ class Pendulum(gym.Env):
 
         self._dt = 0.01
 
-        self._sigma = 1e-8 * np.eye(self.dm_state)
+        self._sigma = 1e-4 * np.eye(self.dm_state)
 
         # g = [th, thd]
         self._g = np.array([0., 0.])
@@ -30,8 +30,8 @@ class Pendulum(gym.Env):
         self.observation_space = spaces.Box(low=-self._xmax,
                                             high=self._xmax)
 
-        self._uw = np.array([1e-3])
-        self._umax = 3.
+        self._uw = np.array([1e-2])
+        self._umax = 2.5
         self.action_space = spaces.Box(low=-self._umax,
                                        high=self._umax, shape=(1,))
 
@@ -57,7 +57,7 @@ class Pendulum(gym.Env):
         return self._g
 
     def dynamics(self, x, u):
-        _u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self.ulim, self.ulim)
 
         g, m, l, k = 10., 1., 1., 1e-3
 
@@ -74,12 +74,12 @@ class Pendulum(gym.Env):
         xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
 
         xn = np.hstack((angle_normalize(xn[0]), xn[1]))
-        xn = np.clip(xn, -self._xmax, self._xmax)
+        xn = np.clip(xn, -self.xlim, self.xlim)
 
         return xn
 
     def inverse_dynamics(self, x, u):
-        _u = np.clip(u, -self._umax, self._umax)
+        _u = np.clip(u, -self.ulim, self.ulim)
 
         g, m, l, k = 10., 1., 1., 1e-3
 
@@ -96,7 +96,7 @@ class Pendulum(gym.Env):
         xn = x - self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
 
         xn = np.hstack((angle_normalize(xn[0]), xn[1]))
-        xn = np.clip(xn, -self._xmax, self._xmax)
+        xn = np.clip(xn, -self.xlim, self.xlim)
 
         return xn
 
@@ -109,15 +109,15 @@ class Pendulum(gym.Env):
         return _J, _j
 
     def noise(self, x=None, u=None):
-        _u = np.clip(u, -self._umax, self._umax)
-        _x = np.clip(x, -self._xmax, self._xmax)
+        _u = np.clip(u, -self.ulim, self.ulim)
+        _x = np.clip(x, -self.xlim, self.xlim)
         return self._sigma
 
-    def cost(self, x, u, a):
+    def cost(self, x, u, u_nxt):
         _J, _j = self.features_jacobian(getval(x))
         _x = _J(getval(x)) @ x + _j
-        return a * (_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)\
-               + u.T @ np.diag(self._uw) @ u
+        return self.dt * ((_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)
+                          + (u - u_nxt).T @ np.diag(self._uw) @ (u - u_nxt))
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -134,7 +134,7 @@ class Pendulum(gym.Env):
 
     def reset(self):
         _low, _high = np.array([np.pi - np.pi / 18., -0.1]),\
-                      np.array([np.pi + np.pi / 18., 0.1])
+                      np.array([np.pi + np.pi / 18., +0.1])
         _x0 = self.np_random.uniform(low=_low, high=_high)
         self.state = np.hstack((angle_normalize(_x0[0]), _x0[1]))
         return self.state
