@@ -15,8 +15,9 @@ The following setup has been test only while using Conda envs.
 - Compile OpenBLAS:
     * Prequisits: libpthread, libgfortran, gcc-fortran
     * https://github.com/xianyi/OpenBLAS.git
+    * Change USE_THREAD to (de-)activate multi-threading
    ```shell
-   USE_THREAD=1 C=gcc FC=gfortran NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
+   USE_THREAD=0 C=gcc FC=gfortran NO_AFFINITY=1 NO_SHARED=1 COMMON_OPT=" -O2 -march=native "  make
    ```
    * Edit local CMakeLists.txt to reflect the path of OpenBLAS
 
