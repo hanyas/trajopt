@@ -14,8 +14,7 @@ class iLQR:
                  alphas=np.power(10., np.linspace(0, -3, 11)),
                  lmbda=1., dlmbda=1.,
                  min_lmbda=1e-6, max_lmbda=1e6, mult_lmbda=1.6,
-                 tolfun=1e-6, tolgrad=1e-4, min_imp=0., reg=1,
-                 discounting=1.):
+                 tolfun=1e-6, tolgrad=1e-4, min_imp=0., reg=1):
 
         self.env = env
 
@@ -68,11 +67,6 @@ class iLQR:
             assert init_action.shape[1] == self.nb_steps
             self.ctl.kff = init_action
 
-        # Discounting
-        self.weighting = np.ones((self.nb_steps + 1,))
-        _gamma = discounting * np.ones((self.nb_steps, ))
-        self.weighting[1:] = np.cumprod(_gamma)
-
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
         self.last_return = - np.inf
@@ -86,10 +80,10 @@ class iLQR:
         for t in range(self.nb_steps):
             _act = ctl.action(state, alpha, self.xref, self.uref, t)
             action[..., t] = np.clip(_act, -self.ulim, self.ulim)
-            cost[..., t] = self.env_cost(state[..., t], action[..., t], self.weighting[t])
+            cost[..., t] = self.env_cost(state[..., t], action[..., t], action[..., t - 1])
             state[..., t + 1] = self.env_dyn(state[..., t], action[..., t])
 
-        cost[..., -1] = self.env_cost(state[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
+        cost[..., -1] = self.env_cost(state[..., -1], np.zeros((self.dm_act, )), np.zeros((self.dm_act, )))
         return state, action, cost
 
     def backward_pass(self):
@@ -144,7 +138,7 @@ class iLQR:
             self.dyn.taylor_expansion(self.xref, self.uref)
 
             # get quadratic cost around ref traj.
-            self.cost.taylor_expansion(self.xref, self.uref, self.weighting)
+            self.cost.taylor_expansion(self.xref, self.uref)
 
             xvalue, xuvalue = None, None
             lc, dvalue = None, None
