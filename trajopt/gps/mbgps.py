@@ -16,7 +16,7 @@ class MBGPS:
 
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
-                 kl_bound=0.1, discounting=1.):
+                 kl_bound=0.1, kl_adaptive=False):
 
         self.env = env
 
@@ -37,6 +37,7 @@ class MBGPS:
         self.kl_bound = kl_bound
 
         # kl mult.
+        self.kl_adaptive = kl_adaptive
         self.kl_mult = 1.
         self.kl_mult_min = 0.1
         self.kl_mult_max = 5.0
@@ -59,11 +60,6 @@ class MBGPS:
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
         self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
 
-        # Discounting
-        self.weighting = np.ones((self.nb_steps + 1,))
-        _gamma = discounting * np.ones((self.nb_steps, ))
-        self.weighting[1:] = np.cumprod(_gamma)
-
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
         self.last_return = - np.inf
@@ -73,8 +69,9 @@ class MBGPS:
 
         cost = np.zeros((self.nb_steps + 1, ))
         for t in range(self.nb_steps):
-            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t], self.weighting[t])
-        cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
+            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t],
+                                         udist.mu[..., t + 1] if t + 1 < self.nb_steps else np.zeros((self.dm_act, )))
+        cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), np.zeros((self.dm_act, )))
 
         return xdist, udist, lgd, cost
 
@@ -174,7 +171,7 @@ class MBGPS:
         self.dyn.params = lgd.A, lgd.B, lgd.c, lgd.sigma
 
         # get quadratic cost around mean traj.
-        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
 
         # mean objective under current dists.
         self.last_return = np.sum(_cost)
@@ -205,9 +202,10 @@ class MBGPS:
             _actual_imp = self.last_return - _return
 
             # update kl multiplier
-            _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
-            _mult = np.maximum(0.1, np.minimum(5.0, _mult))
-            self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
+            if self.kl_adaptive:
+                _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
+                _mult = np.maximum(0.1, np.minimum(5.0, _mult))
+                self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
             # check kl constraint
             kl = self.kldiv(lgc, expected_xdist)
@@ -222,7 +220,7 @@ class MBGPS:
                 self.xdist, self.udist = xdist, udist
 
                 # update quadratic cost around mean traj.
-                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
 
                 # update value functions
                 self.vfunc, self.qfunc = xvalue, xuvalue
@@ -234,7 +232,8 @@ class MBGPS:
                 self.last_return = _return
 
                 # update kl bound
-                self.kl_bound = self.kl_base * self.kl_mult
+                if self.kl_adaptive:
+                    self.kl_bound = self.kl_base * self.kl_mult
             else:
                 print("Something is wrong, KL not satisfied")
                 self.alpha = np.array([-1e4])

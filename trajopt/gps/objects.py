@@ -107,14 +107,14 @@ class AnalyticalQuadraticCost(QuadraticCost):
     def evalf(self, x, u, a):
         return self.f(x, u, a)
 
-    def taylor_expansion(self, x, u, a):
+    def taylor_expansion(self, x, u):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
 
         pool = Pool(processes=-1)
 
         def _loop(t):
-            _in = tuple([x[..., t], _u[..., t], a[t]])
+            _in = tuple([x[..., t], _u[..., t], _u[..., t + 1] if t + 1 < self.nb_steps else np.zeros((self.dm_act, ))])
             _dcdxx = self.dcdxx(*_in)
             _dcduu = self.dcduu(*_in)
             _dcdxu = self.dcdxu(*_in)
@@ -246,6 +246,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         return xdist, udist, lgd
 
 
+# This part is still under construction
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
     def __init__(self, dm_state, dm_act, nb_steps):
         super(LearnedLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
@@ -297,12 +298,9 @@ class LinearGaussianControl:
         self.K = np.zeros((self.dm_act, self.dm_state, self.nb_steps))
         self.kff = np.zeros((self.dm_act, self.nb_steps))
 
-        if isinstance(init_ctl_sigma, float):
-            self.sigma = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
-            for t in range(self.nb_steps):
-                self.sigma[..., t] = init_ctl_sigma * np.eye(self.dm_act)
-        else:
-            self.sigma = init_ctl_sigma
+        self.sigma = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
+        for t in range(self.nb_steps):
+            self.sigma[..., t] = init_ctl_sigma * np.eye(self.dm_act)
 
     @property
     def params(self):
