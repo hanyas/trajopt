@@ -27,3 +27,8 @@ The following setup has been test only while using Conda envs.
     ./configure
     ```
     * Edit local CMakeLists.txt to reflect the path of Armadillo
+
+- Install Python Package:
+   ```shell
+   pip install -e .
+   ```
