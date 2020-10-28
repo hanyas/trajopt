@@ -114,7 +114,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
         pool = Pool(processes=-1)
 
         def _loop(t):
-            _in = tuple([x[..., t], _u[..., t], _u[..., t - 1]])
+            _in = tuple([x[..., t], _u[..., t]])
             _dcdxx = self.dcdxx(*_in)
             _dcduu = self.dcduu(*_in)
             _dcdxu = self.dcdxu(*_in)
@@ -141,7 +141,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
                 self.cx[..., t], self.cu[..., t], self.c0[..., t] = res[t]
 
         # for t in range(self.nb_steps):
-        #     _in = tuple([x[..., t], _u[..., t], a[t]])
+        #     _in = tuple([x[..., t], _u[..., t]])
         #     self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
         #     self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
         #     self.Cxu[..., t] = self.dcdxu(*_in)
