@@ -14,9 +14,9 @@ from trajopt.gps.core import forward_pass, backward_pass
 
 class MFGPS:
 
-    def __init__(self, env, nb_steps, kl_bound,
-                 init_ctl_sigma,
-                 activation=None):
+    def __init__(self, env, nb_steps,
+                 init_state, init_action_sigma=1.,
+                 kl_bound=0.1, kl_adaptive=False):
 
         self.env = env
 
@@ -24,7 +24,7 @@ class MFGPS:
         self.env_dyn = self.env.unwrapped.dynamics
         self.env_noise = self.env.unwrapped.noise
         self.env_cost = self.env.unwrapped.cost
-        self.env_init = self.env.unwrapped.init
+        self.env_init = init_state
 
         self.ulim = self.env.action_space.high
 
@@ -37,6 +37,7 @@ class MFGPS:
         self.kl_bound = kl_bound
 
         # kl mult.
+        self.kl_adaptive = kl_adaptive
         self.kl_mult = 1.
         self.kl_mult_min = 0.1
         self.kl_mult_max = 5.0
@@ -45,7 +46,7 @@ class MFGPS:
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
-        self.xdist.mu[..., 0], self.xdist.sigma[..., 0] = self.env_init()
+        self.xdist.mu[..., 0], self.xdist.sigma[..., 0] = self.env_init
 
         self.udist = Gaussian(self.dm_act, self.nb_steps)
         self.xudist = Gaussian(self.dm_state + self.dm_act, self.nb_steps + 1)
@@ -54,14 +55,7 @@ class MFGPS:
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
         self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
-        self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_ctl_sigma)
-
-        # activation of cost function in shape of sigmoid
-        if activation is None:
-            self.weighting = np.ones((self.nb_steps + 1, ))
-        else:
-            _t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (_t - activation['shift'])))
+        self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -84,14 +78,14 @@ class MFGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env.unwrapped.cost(x, u, self.weighting[t])
+                c = self.env_cost(x, u)
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
                 data['xn'][..., t, n] = x
 
-            c = self.env.unwrapped.cost(x, np.zeros((self.dm_act, )), self.weighting[-1])
+            c = self.env_cost(x, np.zeros((self.dm_act, )))
             data['c'][-1, n] = c
 
         return data
@@ -170,7 +164,7 @@ class MFGPS:
             plt.plot(t, self.xdist.mu[k, :], '-b')
             lb = self.xdist.mu[k, :] - 2. * np.sqrt(self.xdist.sigma[k, k, :])
             ub = self.xdist.mu[k, :] + 2. * np.sqrt(self.xdist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
+            plt.fill_between(t, lb, ub, color='blue', alpha=0.1)
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
         for k in range(self.dm_act):
@@ -178,7 +172,7 @@ class MFGPS:
             plt.plot(t, self.udist.mu[k, :], '-g')
             lb = self.udist.mu[k, :] - 2. * np.sqrt(self.udist.sigma[k, k, :])
             ub = self.udist.mu[k, :] + 2. * np.sqrt(self.udist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='green', alpha='0.1')
+            plt.fill_between(t, lb, ub, color='green', alpha=0.1)
 
         plt.show()
 
@@ -195,7 +189,7 @@ class MFGPS:
         self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
         # get quadratic cost around mean traj.
-        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
 
         # mean objective under current ctrl.
         self.last_return = np.mean(np.sum(self.data['c'], axis=0))
@@ -203,7 +197,7 @@ class MFGPS:
 
         for iter in range(nb_iter):
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, self.alpha,
+            res = sc.optimize.minimize(self.dual, np.array([-1e8]),
                                        method='SLSQP',
                                        jac=True,
                                        bounds=((-1e8, -1e-8), ),
@@ -227,9 +221,10 @@ class MFGPS:
             _actual_imp = self.last_return - _return
 
             # update kl multiplier
-            _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
-            _mult = np.maximum(0.1, np.minimum(5.0, _mult))
-            self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
+            if self.kl_adaptive:
+                _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
+                _mult = np.maximum(0.1, np.minimum(5.0, _mult))
+                self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
@@ -250,7 +245,7 @@ class MFGPS:
                 self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
                 # get quadratic cost around mean traj.
-                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
+                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
 
                 # mean objective under last dists.
                 _trace.append(_return)
@@ -258,8 +253,9 @@ class MFGPS:
                 # update last return to current
                 self.last_return = _return
 
-                # # update kl bound
-                # self.kl_bound = self.kl_base * self.kl_mult
+                # update kl bound
+                if self.kl_adaptive:
+                    self.kl_bound = self.kl_base * self.kl_mult
             else:
                 print("Something is wrong, KL not satisfied")
                 self.alpha = np.array([-1e4])

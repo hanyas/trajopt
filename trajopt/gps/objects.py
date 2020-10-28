@@ -251,42 +251,30 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
     def __init__(self, dm_state, dm_act, nb_steps):
         super(LearnedLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
 
-    def learn(self, data, pointwise=False):
-        if pointwise:
-            from mimo import distributions
-            _hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
-                              V=1e6 * np.eye(self.dm_state + self.dm_act + 1),
-                              affine=True,
-                              psi=np.eye(self.dm_state), nu=self.dm_state + 2)
-            _prior = distributions.MatrixNormalInverseWishart(**_hypparams)
+    def learn(self, data, stepwise=True):
+        if stepwise:
+            from mimo.distributions import MatrixNormalWishart
+            from mimo.distributions import LinearGaussianWithMatrixNormalWishart
+
+            hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
+                             K=1e-2 * np.eye(self.dm_state + self.dm_act + 1),
+                             psi=np.eye(self.dm_state),
+                             nu=self.dm_state + 1)
+            prior = MatrixNormalWishart(**hypparams)
 
             for t in range(self.nb_steps):
-                _data = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T, data['xn'][:, t, :].T))
+                input = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T))
+                target = data['xn'][:, t, :].T
 
-                _model = distributions.BayesianLinearGaussian(_prior)
-                _model = _model.MAP(_data)
+                model = LinearGaussianWithMatrixNormalWishart(prior, affine=True)
+                model = model.max_aposteriori(y=target, x=input)
 
-                self.A[..., t] = _model.A[:, :self.dm_state]
-                self.B[..., t] = _model.A[:, self.dm_state:self.dm_state + self.dm_act]
-                self.c[..., t] = _model.A[:, -1]
-                self.sigma[..., t] = _model.sigma
+                self.A[..., t] = model.likelihood.A[:, :self.dm_state]
+                self.B[..., t] = model.likelihood.A[:, self.dm_state:self.dm_state + self.dm_act]
+                self.c[..., t] = model.likelihood.A[:, -1]
+                self.sigma[..., t] = model.likelihood.sigma
         else:
-            _obs = [data['x'][..., n].T for n in range(data['x'].shape[-1])]
-            _input = [data['u'][..., n].T for n in range(data['u'].shape[-1])]
-
-            from sds.rarhmm_ls import rARHMM
-            rarhmm = rARHMM(nb_states=5, dim_obs=self.dm_state, dim_act=self.dm_act)
-            rarhmm.initialize(_obs, _input)
-            rarhmm.em(_obs, _input, nb_iter=50, prec=1e-12, verbose=False)
-
-            _mean_obs = np.mean(data['x'], axis=-1).T
-            _mean_input = np.mean(data['u'], axis=-1).T
-            _, _mean_z = rarhmm.viterbi([_mean_obs], [_mean_input])
-
-            for t in range(self.nb_steps):
-                self.A[..., t] = rarhmm.observations.A[_mean_z[0][t], ...]
-                self.B[..., t] = rarhmm.observations.B[_mean_z[0][t], ...]
-                self.c[..., t] = rarhmm.observations.c[_mean_z[0][t], ...]
+            raise NotImplementedError
 
 
 class LinearGaussianControl:
