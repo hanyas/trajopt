@@ -626,7 +626,7 @@ py::tuple robust_backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
 py::tuple parameter_backward_pass(array_tf _mu_xu, array_tf _sigma_xu,
                         array_tf _cx, array_tf _Cxx, array_tf _Cuu,
                         array_tf _cu, array_tf _Cxu, array_tf _c0,
-                        array_tf _A, array_tf _B, array_tf _c, array_tf _sigma_param_nom,
+                        array_tf _mu_param_nom, array_tf _sigma_param_nom,
                         array_tf _K, array_tf _kff, array_tf _sigma_ctl,
                         double alpha, int dm_state, int dm_act, int nb_steps) {
 
@@ -641,10 +641,7 @@ py::tuple parameter_backward_pass(array_tf _mu_xu, array_tf _sigma_xu,
     mat mu_xu = array_to_mat(_mu_xu);
     cube sigma_xu = array_to_cube(_sigma_xu);
 
-    cube A = array_to_cube(_A);
-    cube B = array_to_cube(_B);
-    mat c = array_to_mat(_c);
-
+    mat mu_param_nom = array_to_mat(_mu_param_nom);
     cube sigma_param_nom = array_to_cube(_sigma_param_nom);
 
     cube K = array_to_cube(_K);
@@ -673,6 +670,10 @@ py::tuple parameter_backward_pass(array_tf _mu_xu, array_tf _sigma_xu,
     mat A_cl(dm_state, dm_state);
     vec c_cl(dm_state);    
 
+    mat A_new(dm_state, dm_state);
+    mat B_new(dm_state, dm_act);
+    vec c_new(dm_state);
+
     // outputs
     mat mu_param(dm_param, nb_steps);
     cube sigma_param(dm_param, dm_param, nb_steps);
@@ -698,7 +699,7 @@ py::tuple parameter_backward_pass(array_tf _mu_xu, array_tf _sigma_xu,
         w = kron(mu_xu1.col(i), eye(dm_state, dm_state))*v.col(i+1);
 
         sigma_param.slice(i) = inv_sympd(prec_param_nom.slice(i) + 2/alpha*W);
-        mu_param.col(i) = sigma_param.slice(i)*(prec_param_nom.slice(i)*join_vert(vectorise(A.slice(i)),vectorise(B.slice(i)), c.col(i)) - 1/alpha*w);
+        mu_param.col(i) = sigma_param.slice(i)*(prec_param_nom.slice(i)*mu_param_nom.col(i) - 1/alpha*w);
 
         // extra terms due to parameter distribution
          for (int j = 0; j < dm_state + dm_act + 1; j++){
@@ -713,8 +714,12 @@ py::tuple parameter_backward_pass(array_tf _mu_xu, array_tf _sigma_xu,
         pu = cu.col(i) + 2*P.submat(dm_state, dm_state + dm_act, dm_state + dm_act - 1, dm_state + dm_act);
         p0 = c0(i) + P(dm_state + dm_act, dm_state + dm_act);
 
-        A_cl = A.slice(i) + B.slice(i)*K.slice(i);
-        c_cl = B.slice(i)*kff.col(i) + c.col(i);
+        A_new = reshape(mu_param(span(0, dm_state*dm_state - 1), i), size(A_new));
+        B_new = reshape(mu_param(span(dm_state*dm_state, dm_state*(dm_state + dm_act) - 1), i), size(B_new));
+        c_new = mu_param(span(dm_state*(dm_state + dm_act), dm_state*(dm_state + dm_act + 1 ) - 1), i);
+
+        A_cl = A_new + B_new*K.slice(i);
+        c_cl = B_new*kff.col(i) + c_new;
         
         V.slice(i) = A_cl.t()*V.slice(i+1)*A_cl + Pxx + Pxu*K.slice(i) + K.slice(i).t()*Puu*K.slice(i);
         V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
@@ -722,8 +727,7 @@ py::tuple parameter_backward_pass(array_tf _mu_xu, array_tf _sigma_xu,
         v.col(i) = 2*A_cl*V.slice(i+1)*c_cl + Pxu*kff.col(i) + K.slice(i).t()*(pu + 2*Puu*kff.col(i)) + px + A_cl*v.col(i+1);
 
         v0(i) = v0(i+1) + p0 + as_scalar(c_cl.t()*V.slice(i+1)*c_cl + v.col(i+1).t()*c_cl + kff.col(i)*(Puu*kff.col(i) + pu))
-                + trace((B.slice(i).t()*V.slice(i+1)*B.slice(i) + Cuu.slice(i))*sigma_ctl.slice(i))
-                + trace(sigma_param.slice(i).submat(dm_state*dm_state, dm_state*dm_state, dm_state*(dm_state + dm_act) -1, dm_state*(dm_state + dm_act) - 1)*kron(sigma_ctl.slice(i), V.slice(i+1)));
+                + trace((B_new.t()*V.slice(i+1)*B_new + Puu)*sigma_ctl.slice(i));
 	}
 
     // transform outputs to numpy    
