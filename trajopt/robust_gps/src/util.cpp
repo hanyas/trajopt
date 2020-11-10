@@ -490,7 +490,7 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
 
 py::tuple robust_backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
                         array_tf _cu, array_tf _Cxu, array_tf _c0,
-                        array_tf _A, array_tf _B, array_tf _c, array_tf _sigma_param,
+                        array_tf _mu_param, array_tf _sigma_param,
                         double alpha, int dm_state, int dm_act, int nb_steps) {
 
     // inputs
@@ -501,12 +501,14 @@ py::tuple robust_backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     cube Cxu = array_to_cube(_Cxu);
     vec c0 = array_to_vec(_c0);
 
-    cube A = array_to_cube(_A);
-    cube B = array_to_cube(_B);
-    mat c = array_to_mat(_c);
+    mat mu_param = array_to_mat(_mu_param);
     cube sigma_param = array_to_cube(_sigma_param);   
-
+ 
     //
+    mat A(dm_state, dm_state);
+    mat B(dm_state, dm_act);
+    vec c(dm_state);
+
     mat P(dm_state + dm_act + 1, dm_state + dm_act + 1);
     mat Pxx(dm_state, dm_state);
     mat Pxu(dm_act, dm_state);
@@ -546,7 +548,12 @@ py::tuple robust_backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     v0_softmax(nb_steps) = c0(nb_steps);
 
 	for(int i = nb_steps - 1; i>= 0; --i)
-	{
+	{   
+        // get matrices from parameter distribution mean vector 
+        A = reshape(mu_param(span(0, dm_state*dm_state - 1), i), size(A));
+        B = reshape(mu_param(span(dm_state*dm_state, dm_state*(dm_state + dm_act) - 1), i), size(B));
+        c = mu_param(span(dm_state*(dm_state + dm_act), dm_state*(dm_state + dm_act + 1 ) - 1), i);
+
         // extra terms due to parameter distribution
          for (int j = 0; j < dm_state + dm_act + 1; j++){
             for (int k = 0; k < dm_state + dm_act + 1; k++){
@@ -560,13 +567,13 @@ py::tuple robust_backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
         pu = 2*P.submat(dm_state, dm_state + dm_act, dm_state + dm_act - 1, dm_state + dm_act);
         p0 = P(dm_state + dm_act, dm_state + dm_act);
     
-        Qxx.slice(i) = (Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i) + Pxx) / alpha;
-        Quu.slice(i) = (Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i) + Puu) / alpha;
-        Qux.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i) + Pxu).t() / alpha;
+        Qxx.slice(i) = (Cxx.slice(i) + A.t() * V.slice(i+1) * A + Pxx) / alpha;
+        Quu.slice(i) = (Cuu.slice(i) + B.t() * V.slice(i+1) * B + Puu) / alpha;
+        Qux.slice(i) = (Cxu.slice(i) + A.t() * V.slice(i+1) * B + Pxu).t() / alpha;
 
-        qu.col(i) = (cu.col(i) + 2.0 * B.slice(i).t() * V.slice(i+1) * c.col(i) + B.slice(i).t() * v.col(i+1) + pu) / alpha;
-        qx.col(i) = (cx.col(i) + 2.0 * A.slice(i).t() * V.slice(i+1) * c.col(i) + A.slice(i).t() * v.col(i+1) + px) / alpha;
-        q0_common(i) = as_scalar(c0(i) +  c.col(i).t() * V.slice(i+1) * c.col(i) + p0 + v.col(i+1).t() * c.col(i));
+        qu.col(i) = (cu.col(i) + 2.0 * B.t() * V.slice(i+1) * c + B.t() * v.col(i+1) + pu) / alpha;
+        qx.col(i) = (cx.col(i) + 2.0 * A.t() * V.slice(i+1) * c + A.t() * v.col(i+1) + px) / alpha;
+        q0_common(i) = as_scalar(c0(i) +  c.t() * V.slice(i+1) * c + p0 + v.col(i+1).t() * c);
 
         q0(i) = (q0_common(i) + v0(i+1)) / alpha;
         q0_softmax(i) = (q0_common(i) + v0_softmax(i+1)) / alpha;
@@ -697,6 +704,10 @@ py::tuple parameter_backward_pass(array_tf _mu_xu, array_tf _sigma_xu,
         // worst case parameter distribution
         W = kron(mu_xu1.col(i)*mu_xu1.col(i).t() + sigma_xu1.slice(i), V.slice(i+1));
         w = kron(mu_xu1.col(i), eye(dm_state, dm_state))*v.col(i+1);
+    
+        if (!(prec_param_nom.slice(i) + 2/alpha*W).is_sympd()) {
+            throw std::domain_error("New parameter covariance not positive definite!");
+        }
 
         sigma_param.slice(i) = inv_sympd(prec_param_nom.slice(i) + 2/alpha*W);
         mu_param.col(i) = sigma_param.slice(i)*(prec_param_nom.slice(i)*mu_param_nom.col(i) - 1/alpha*w);

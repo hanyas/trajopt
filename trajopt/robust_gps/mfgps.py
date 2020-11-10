@@ -71,18 +71,19 @@ class MFROBGPS:
 
         self.data = {}
 
-        # TODO: get these from dynamics and keep updating
-        sigma_param_row = np.repeat(1e-2*np.eye(self.dm_state + self.dm_act + 1)[:,:,np.newaxis], self.nb_steps, axis=2) 
-        sigma_param_col = np.repeat(1e-2*np.eye(self.dm_state)[:,:,np.newaxis], self.nb_steps, axis=2) 
-        
-        self.sigma_param_nom = np.transpose(np.array([np.kron(sigma_param_col[:,:,t], sigma_param_row[:,:,t]) for t in range(nb_steps)]), (1,2,0)) 
+    def sample_param(self, t, worst=False):        
+        mu = self.mu_param if worst else self.mu_param_nom
+        sigma = self.sigma_param if worst else self.sigma_param_nom
 
-        A_flat = self.dyn.A.reshape(self.dm_state**2, self.nb_steps, order='F')
-        B_flat = self.dyn.B.reshape(self.dm_state*self.dm_act, self.nb_steps, order='F')
+        param_vec = np.random.multivariate_normal(mu[:,t], sigma[:,:,t])
+        mat = param_vec.reshape((self.dm_state,-1), order='F')
+        A = mat[:,:self.dm_state]
+        B = mat[:,self.dm_state:self.dm_state+self.dm_act]
+        c = mat[:,-1]
 
-        self.mu_param_nom = np.vstack((A_flat, B_flat, self.dyn.c))
+        return A, B, c
 
-    def sample(self, nb_episodes, stoch=True):
+    def sample(self, nb_episodes, stoch=True, use_model=False, worst=False):
         data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
                 'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
                 'xn': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
@@ -101,7 +102,13 @@ class MFROBGPS:
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
-                x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
+
+                if use_model:
+                    A, B, c = self.sample_param(t, worst)
+                    x = A @ x + B @ u + c 
+                else:
+                    x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
+                    
                 data['xn'][..., t, n] = x
 
             c = self.env_cost(x, np.zeros((self.dm_act, )))
@@ -115,7 +122,7 @@ class MFROBGPS:
         xudist = Gaussian(self.dm_state + self.dm_act, self.nb_steps + 1)
 
         # TODO: rewrite cubature_forward_pass to take mu_param directly
-        mat = self.mu_param.reshape((self.dm_state,-1,self.nb_steps),order='F')
+        mat = self.mu_param.reshape((self.dm_state,-1,self.nb_steps), order='F')
         A = mat[:,:self.dm_state,:]
         B = mat[:,self.dm_state:self.dm_state+self.dm_act,:]
         c = mat[:,-1,:]
@@ -126,8 +133,6 @@ class MFROBGPS:
                                                A, B, c, sigma_param,
                                                lgc.K, lgc.kff, lgc.sigma,
                                                self.dm_state, self.dm_act, self.nb_steps)
-
-
 
         return xdist, udist, xudist
 
@@ -141,7 +146,7 @@ class MFROBGPS:
         xvalue.V, xvalue.v, xvalue.v0, xvalue.v0_softmax,\
         lgc.K, lgc.kff, lgc.sigma, diverge = robust_backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
                                                            agcost.cu, agcost.Cxu, agcost.c0,
-                                                           self.dyn.A, self.dyn.B, self.dyn.c, self.sigma_param,
+                                                           self.mu_param, self.sigma_param,
                                                            alpha, self.dm_state, self.dm_act, self.nb_steps)
         return lgc, xvalue, xuvalue, diverge
 
@@ -154,47 +159,71 @@ class MFROBGPS:
                                                         alpha, self.dm_state, self.dm_act, self.nb_steps)
         return agcost
 
-    def parameter_backward_pass(self, alpha):
+    def parameter_backward_pass(self, alpha, xudist):
         xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
 
         xvalue.V, xvalue.v, xvalue.v0,\
-        mu_param, sigma_param, diverge = parameter_backward_pass(self.xudist.mu, self.xudist.sigma,
+        mu_param, sigma_param, diverge = parameter_backward_pass(xudist.mu, xudist.sigma,
                                                                      self.cost.cx, self.cost.Cxx, self.cost.Cuu,
                                                                      self.cost.cu, self.cost.Cxu, self.cost.c0,
-                                                                     self.dyn.A, self.dyn.B, self.dyn.c, self.sigma_param_nom,
+                                                                     self.mu_param_nom, self.sigma_param_nom,
                                                                      self.ctl.K, self.ctl.kff, self.ctl.sigma,
                                                                      alpha, self.dm_state, self.dm_act, self.nb_steps)
         return mu_param, sigma_param, xvalue, diverge
 
+
     def parameter_kldiv(self, mu_param, sigma_param):
-        prec_param_nom = np.linalg.inv(self.sigma_param_nom.T).T
+        return self.gaussians_kldiv(mu_param, sigma_param, self.mu_param_nom, self.sigma_param_nom)
 
-        delta_mu = (self.mu_param_nom - mu_param)
-        quad_term = np.einsum('it,ijt,jt->t', delta_mu, prec_param_nom, delta_mu)
-        trace_term = np.trace(np.einsum('ijt,jlt->ilt', prec_param_nom, sigma_param))
-        log_det_term = np.log(np.linalg.det(self.sigma_param_nom.T)/np.linalg.det(sigma_param.T))
+    def gaussians_kldiv(self, mu1, sigma1, mu2, sigma2):
+        prec2 = np.linalg.inv(sigma2.T).T
+
+        delta_mu = (mu2 - mu1)
+        quad_term = np.einsum('it,ijt,jt->t', delta_mu, prec2, delta_mu)
+        trace_term = np.trace(np.einsum('ijt,jlt->ilt', prec2, sigma1))
+        log_det_term = np.log(np.linalg.det(sigma2.T)/np.linalg.det(sigma1.T))
         
-        return 0.5*(trace_term + quad_term + log_det_term - self.dm_param)
+        return 0.5*(trace_term + quad_term + log_det_term - mu1.shape[0])
 
 
-    def parameter_dual(self, alpha):
-        # backward pass
-        mu_param, sigma_param, xvalue, diverge = self.parameter_backward_pass(alpha)
+    def parameter_dual(self, alpha, verbose=False):
+        _xudist = self.xudist 
+        _xdist = self.xdist 
 
-        # forward pass
-        xdist, udist, xudist = self.forward_pass(self.ctl, mu_param, sigma_param)
+        xdist_converged = False
+        iter = 0
+        # TODO: necessary? doesn't seem to do much
+        while not xdist_converged:
+            # backward pass
+            mu_param, sigma_param, xvalue, diverge = self.parameter_backward_pass(alpha, _xudist)
+            
+            # forward pass
+            xdist, udist, xudist = self.forward_pass(self.ctl, mu_param, sigma_param)
+
+            x_dist_kl = np.sum(self.gaussians_kldiv(_xdist.mu, _xdist.sigma, xdist.mu, xdist.sigma))
+            
+            if verbose:
+                if iter == 0:
+                    print("%6s %8s" %("iter", "xdist kl"))
+                print("%6i %8.2e" %(iter, x_dist_kl))
+
+            xdist_converged = x_dist_kl < 1e-12
+
+            _xdist = xdist
+            _xudist = xudist
+
+            iter += 1
 
         # dual expectation
         dual = quad_expectation(xdist.mu[..., 0], xdist.sigma[..., 0],
                                 xvalue.V[..., 0], xvalue.v[..., 0],
                                 xvalue.v0[..., 0])
                             
-        dual += alpha * (np.sum(self.parameter_kldiv(mu_param, sigma_param)[:-1]) - self.param_kl_bound)
+        dual += alpha * (np.sum(self.parameter_kldiv(mu_param, sigma_param)[:-1]) - self.param_kl_bound)        
 
         # gradient
         grad = np.sum(self.parameter_kldiv(mu_param, sigma_param)[:-1]) - self.param_kl_bound
 
-        # TODO sign?
         return  np.array([dual]),  np.array([grad])
 
     def dual(self, alpha):
@@ -247,7 +276,15 @@ class MFROBGPS:
 
         plt.show()
 
-    def run(self, nb_episodes, nb_iter=10, verbose=False):
+    def update_param_nom(self):
+        # TODO get from dynamics
+        self.sigma_param_nom = np.repeat(1e-4*np.eye(self.dm_state*(self.dm_state + self.dm_act + 1))[:,:,np.newaxis], self.nb_steps, axis=2) 
+
+        A_flat = self.dyn.A.reshape(self.dm_state**2, self.nb_steps, order='F')
+        B_flat = self.dyn.B.reshape(self.dm_state*self.dm_act, self.nb_steps, order='F')
+        self.mu_param_nom = np.vstack((A_flat, B_flat, self.dyn.c))
+    
+    def run(self, nb_episodes, nb_iter=10, verbose=False, plot_dual=False):
         _trace = []
 
         # run init controller
@@ -256,22 +293,13 @@ class MFROBGPS:
         # fit time-variant linear dynamics
         self.dyn.learn(self.data)
 
+        # update nominal parameter distribution
+        self.update_param_nom()
 
-        # sigma_param_row = np.repeat(1e-3*np.eye(self.dm_state + self.dm_act + 1)[:,:,np.newaxis], self.nb_steps, axis=2) 
-        # sigma_param_col = np.repeat(1e-8*np.eye(self.dm_state)[:,:,np.newaxis], self.nb_steps, axis=2) 
-        
-        # self.sigma_param_nom = np.transpose(np.array([np.kron(sigma_param_col[:,:,t], sigma_param_row[:,:,t]) for t in range(self.nb_steps)]), (1,2,0)) 
-
-        self.sigma_param_nom = np.repeat(1e-4*np.eye(self.dm_state*(self.dm_state + self.dm_act + 1))[:,:,np.newaxis], self.nb_steps, axis=2) 
-
-        A_flat = self.dyn.A.reshape(self.dm_state**2, self.nb_steps, order='F')
-        B_flat = self.dyn.B.reshape(self.dm_state*self.dm_act, self.nb_steps, order='F')
-
-        self.mu_param_nom = np.vstack((A_flat, B_flat, self.dyn.c))
+        # initialize worst-case distribution with nominal parameters
         self.mu_param = self.mu_param_nom
         self.sigma_param = self.sigma_param_nom
-
-
+         
         # current state distribution
         self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl, self.mu_param, self.sigma_param)
 
@@ -283,23 +311,52 @@ class MFROBGPS:
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
-            # param_res = sc.optimize.minimize(self.parameter_dual, np.array([-1e5]),
-            #                            method='SLSQP',
-            #                            jac=True,
-            #                            bounds=((-1e8, -1e-8), ),
-            #                            options={'disp': True, 'maxiter': 10000,
-            #                                     'ftol': 1e-6})
+            param_alpha_bound = -1e-8
+            param_optimum_found = False
+
+            while (param_alpha_bound > -1e8) and not param_optimum_found:
+                try:
+                    # param_res = sc.optimize.minimize(lambda a: self.parameter_dual(a)[0], np.array([-1e5]),
+                    #                         method='SLSQP',
+                    #                         jac=False,
+                    #                         bounds=((-1e8, param_alpha_bound), ),
+                    #                         options={'disp': True, 'maxiter': 100,
+                    #                                     'ftol': 1e-6})
+
+                    param_res = sc.optimize.minimize(self.parameter_dual, np.array([-1e5]),
+                                method='L-BFGS-B',
+                                jac=True,
+                                callback=None,
+                                bounds=((-1e8, param_alpha_bound), ),
+                                options={'disp': False, 'maxiter': 1000,
+                                            'ftol': 1e-6})
+
+                    param_optimum_found = True
+
+                except ValueError:
+                    param_alpha_bound *= 10
+
+            self.alpha_param = param_res.x
+
+            self.mu_param, self.sigma_param, _, _ = self.parameter_backward_pass(self.alpha_param, self.xudist)
+            param_kl = np.sum(self.parameter_kldiv(self.mu_param, self.sigma_param)[:-1])
+            
             # use scipy optimizer
             res = sc.optimize.minimize(self.dual, np.array([-1e8]),
                                        method='SLSQP',
                                        jac=True,
                                        callback=None,
                                        bounds=((-1e8, -1e-8), ),
-                                       options={'disp': True, 'maxiter': 100,
+                                       options={'disp': False, 'maxiter': 100,
                                                 'ftol': 1e-6})
             self.alpha = res.x
 
-         
+            if plot_dual:
+                try:
+                    self.plot_dual(self.parameter_dual, np.log10(-0.5*param_res.x)[0], np.log10(-10*param_res.x)[0])
+                except ValueError:
+                    self.plot_dual(self.parameter_dual, np.log10(-0.8*param_res.x)[0], np.log10(-2*param_res.x)[0])
+
             # re-compute after opt.
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
@@ -336,6 +393,9 @@ class MFROBGPS:
                 # fit time-variant linear dynamics
                 self.dyn.learn(self.data)
 
+                # update nominal parameter distribution
+                self.update_param_nom()
+
                 # current state distribution
                 self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl, self.mu_param, self.sigma_param)
 
@@ -356,9 +416,50 @@ class MFROBGPS:
                 self.alpha = np.array([-1e4])
 
             if verbose:
-                print("iter: ", iter,
-                      " req. kl: ", self.kl_bound,
-                      " act. kl: ", kl,
-                      " return: ", _return)
+                if iter == 0:
+                    print("%6s %12s %12s %12s" %("", "policy kl", "param kl", ""))
+                    print("%6s %6s %6s %6s %6s %12s" %("iter", "req.", "act.",  "req.", "act.", "return"))
+                
+                print("%6i %6.2f %6.2f %6.2f %6.2f %12.2f" %(iter, self.kl_bound, kl,  self.param_kl_bound, param_kl, _return))
 
         return _trace
+
+
+    def plot_dual(self, dual_fun, elow=0,ehigh=8,logax=True):
+        import matplotlib.pyplot as plt
+        import scipy as sc
+
+        res = sc.optimize.minimize(dual_fun, np.array([-1*10**((ehigh-elow)/2)]),
+                                        method='L-BFGS-B',
+                                        jac=True,
+                                        callback=None,
+                                        bounds=((-10**(ehigh), -10**(elow)), ),
+                                        options={'disp': True, 'maxiter': 100,
+                                                    'ftol': 1e-6})
+
+        print(res.x)
+        fig, ax1 = plt.subplots()
+        if logax:
+            alphas = np.logspace(elow,ehigh).flatten()
+            ax1.set_xscale('log')
+        else:
+            alphas = np.linspace(10**elow,10**ehigh).flatten()
+
+        dual_obj = lambda alpha: dual_fun(alpha)[0]
+        eps = np.sqrt(np.finfo(float).eps)
+        grad_findiff = -np.hstack([sc.optimize.approx_fprime(np.array([-alpha]), dual_obj, [eps]) for alpha in alphas])
+
+        obj, grad = zip(*[dual_fun(-alpha) for alpha in alphas])
+        obj = np.hstack(obj)
+        grad = np.hstack(grad)
+        grad *= -1
+        ax1.plot(alphas, obj, 'b')
+        ax1.set_ylabel("objective",color='b')
+        ax1.set_xlabel("alpha")
+        ax1.axvline(-res.x, color='k', ls="--")
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("gradient",color='r')
+        ax2.plot(alphas,grad,'r')
+        ax2.plot(alphas,grad_findiff,'r--')
+        ax2.axhline(0,color='k')
+        plt.show()

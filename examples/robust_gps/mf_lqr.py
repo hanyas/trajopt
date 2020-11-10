@@ -1,5 +1,6 @@
 import gym
 from trajopt.robust_gps import MFROBGPS
+from trajopt.gps import MFGPS
 import numpy as np
 
 import warnings
@@ -13,43 +14,79 @@ env._max_episode_steps = 100000
 env_sigma = env.unwrapped._sigma
 state = env.reset()
 
-s = 1
-env.seed(s)
-np.random.seed(s)
-
 init_state = tuple([state, env_sigma])
 
-alg = MFROBGPS(env, nb_steps=60,
+alg = MFROBGPS(env, nb_steps=40,
             kl_bound=5.,
-            param_kl_bound=10.,
+            param_kl_bound=20,
+            init_state=init_state,
+            init_action_sigma=100.)
+
+alg2 = MFGPS(env, nb_steps=40,
+            kl_bound=5.,
             init_state=init_state,
             init_action_sigma=100.)
 
 
+s = 1837
+env.seed(s)
+np.random.seed(s)
+trace = alg.run(nb_episodes=25, nb_iter=9, verbose=True)
+
 
 # run gps
-trace1 = alg.run(nb_episodes=25, nb_iter=10, verbose=True)
+s = 1837
+env.seed(s)
+np.random.seed(s)
+trace2 = alg2.run(nb_episodes=25, nb_iter=9, verbose=True)
 
-alg.plot()
 
-trace2 = alg.run(nb_episodes=25, nb_iter=10, verbose=True)
 
-# plot dists
-alg.plot()
+import copy
+rob_ctl = copy.copy(alg.ctl)
+nom_ctl = copy.copy(alg2.ctl)
+
+
+# # plot dists
+# alg.plot()
+# alg2.plot()
 
 # execute and plot
-data = alg.sample(25, stoch=False)
+
+
 
 import matplotlib.pyplot as plt
 
-plt.figure()
-for k in range(alg.dm_state):
-    plt.subplot(alg.dm_state + alg.dm_act, 1, k + 1)
-    plt.plot(data['x'][k, ...])
 
-for k in range(alg.dm_act):
-    plt.subplot(alg.dm_state + alg.dm_act, 1, alg.dm_state + k + 1)
-    plt.plot(data['u'][k, ...])
+alg.ctl = rob_ctl
+alg2.ctl = rob_ctl
+rob_ctl_worst_dyn = np.mean(alg.sample(100, stoch=False, worst=True, use_model=True)['c'],0)
+rob_ctl_nominal_dyn = np.mean(alg2.sample(100, stoch=False)['c'],0)
+
+alg.ctl = nom_ctl
+alg2.ctl = nom_ctl
+nom_ctl_worst_dyn = np.mean(alg.sample(100, stoch=False, worst=True, use_model=True)['c'],0)
+nom_ctl_nominal_dyn = np.mean(alg2.sample(100, stoch=False)['c'],0)
+
+
+plt.figure()
+plt.hist(rob_ctl_worst_dyn, density=True, label= "rob_ctl_worst")
+plt.hist(nom_ctl_worst_dyn, density=True, label= "nom_ctl_worst")
+plt.legend()
+
+plt.figure()
+plt.hist(rob_ctl_nominal_dyn, density=True, label= "rob_ctl_nominal")
+plt.hist(nom_ctl_nominal_dyn, density=True, label= "nom_ctl_nominal")
+plt.legend()
+
+
+# for k in range(alg.dm_state):
+#     plt.subplot(alg.dm_state + alg.dm_act, 1, k + 1)
+#     plt.plot(data['x'][k, ...])
+
+# for k in range(alg.dm_act):
+#     plt.subplot(alg.dm_state + alg.dm_act, 1, alg.dm_state + k + 1)
+#     plt.plot(data['u'][k, ...])
 
 plt.show()
 
@@ -58,22 +95,3 @@ plt.figure()
 plt.plot(trace)
 plt.show()
 
-import matplotlib.pyplot as plt
-alphas = np.logspace(0,8,100)
-dl = [self.parameter_dual(alpha)[0] for alpha in alphas]
-plt.plot(alphas, dl)
-plt.xscale('log')
-plt.show()
-
-
-mu_param, sigma_param, xvalue, diverge = self.parameter_backward_pass(-1e10)
-kl = self.parameter_kldiv(mu_param, sigma_param)
-plt.plot(kl)
-plt.show()
-
-for a in [10, 100, 1000, 10000]:
-    mu_param, sigma_param, xvalue, diverge = self.parameter_backward_pass(-a)
-    kl = self.parameter_kldiv(mu_param, sigma_param)
-    plt.plot(kl, label=a)
-plt.legend()
-plt.show()
