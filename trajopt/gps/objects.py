@@ -111,51 +111,22 @@ class AnalyticalQuadraticCost(QuadraticCost):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
 
-        pool = Pool(processes=-1)
-
-        def _loop(t):
+        for t in range(self.nb_steps):
             _in = tuple([x[..., t], _u[..., t]])
-            _dcdxx = self.dcdxx(*_in)
-            _dcduu = self.dcduu(*_in)
-            _dcdxu = self.dcdxu(*_in)
+            self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
+            self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
+            self.Cxu[..., t] = self.dcdxu(*_in)
 
-            Cxx = 0.5 * _dcdxx
-            Cuu = 0.5 * _dcduu
-            Cxu = _dcdxu
-
-            cx = self.dcdx(*_in) - _dcdxx @ x[..., t] - _dcdxu @ _u[..., t]
-            cu = self.dcdu(*_in) - _dcduu @ _u[..., t] - x[..., t].T @ _dcdxu
+            self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - self.dcdxu(*_in) @ _u[..., t]
+            self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - x[..., t].T @ self.dcdxu(*_in)
 
             # residual of taylor expansion
-            c0 = self.f(*_in) - x[..., t].T @ Cxx @ x[..., t]\
-                              - _u[..., t].T @ Cuu @ _u[..., t]\
-                              - x[..., t].T @ Cxu @ _u[..., t]\
-                              - cx.T @ x[..., t]\
-                              - cu.T @ _u[..., t]
-
-            return Cxx, Cuu, Cxu, cx, cu, c0
-
-        res = pool.map(_loop, range(self.nb_steps))
-        for t in range(self.nb_steps):
-            self.Cxx[..., t], self.Cuu[..., t], self.Cxu[..., t],\
-                self.cx[..., t], self.cu[..., t], self.c0[..., t] = res[t]
-
-        # for t in range(self.nb_steps):
-        #     _in = tuple([x[..., t], _u[..., t]])
-        #     self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
-        #     self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
-        #     self.Cxu[..., t] = self.dcdxu(*_in)
-        #
-        #     self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - self.dcdxu(*_in) @ _u[..., t]
-        #     self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - x[..., t].T @ self.dcdxu(*_in)
-        #
-        #     # residual of taylor expansion
-        #     self.c0[..., t] = self.f(*_in)\
-        #                       - x[..., t].T @ self.Cxx[..., t] @ x[..., t]\
-        #                       - _u[..., t].T @ self.Cuu[..., t] @ _u[..., t]\
-        #                       - x[..., t].T @ self.Cxu[..., t] @ _u[..., t]\
-        #                       - self.cx[..., t].T @ x[..., t]\
-        #                       - self.cu[..., t].T @ _u[..., t]
+            self.c0[..., t] = self.f(*_in)\
+                              - x[..., t].T @ self.Cxx[..., t] @ x[..., t]\
+                              - _u[..., t].T @ self.Cuu[..., t] @ _u[..., t]\
+                              - x[..., t].T @ self.Cxu[..., t] @ _u[..., t]\
+                              - self.cx[..., t].T @ x[..., t]\
+                              - self.cu[..., t].T @ _u[..., t]
 
 
 class LinearGaussianDynamics:
@@ -257,7 +228,7 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
             from mimo.distributions import LinearGaussianWithMatrixNormalWishart
 
             hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
-                             K=1e-2 * np.eye(self.dm_state + self.dm_act + 1),
+                             K=1e-12 * np.eye(self.dm_state + self.dm_act + 1),
                              psi=np.eye(self.dm_state),
                              nu=self.dm_state + 1)
             prior = MatrixNormalWishart(**hypparams)

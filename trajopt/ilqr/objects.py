@@ -1,8 +1,6 @@
 import autograd.numpy as np
 from autograd import jacobian, hessian
 
-from pathos.multiprocessing import ProcessingPool as Pool
-
 
 class QuadraticStateValue:
     def __init__(self, dm_state, nb_steps):
@@ -71,30 +69,13 @@ class AnalyticalQuadraticCost(QuadraticCost):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
 
-        pool = Pool(processes=-1)
-
-        def _loop(t):
-            _in = tuple([x[..., t], _u[..., t]])
-            Cxx = self.dcdxx(*_in)
-            Cuu = self.dcduu(*_in)
-            Cxu = self.dcdxu(*_in)
-            cx = self.dcdx(*_in)
-            cu = self.dcdu(*_in)
-
-            return Cxx, Cuu, Cxu, cx, cu
-
-        res = pool.map(_loop, range(self.nb_steps))
         for t in range(self.nb_steps):
-            self.Cxx[..., t], self.Cuu[..., t], self.Cxu[..., t],\
-                self.cx[..., t], self.cu[..., t] = res[t]
-
-        # for t in range(self.nb_steps):
-        #     _in = tuple([x[..., t], _u[..., t]])
-        #     self.Cxx[..., t] = self.dcdxx(*_in)
-        #     self.Cuu[..., t] = self.dcduu(*_in)
-        #     self.Cxu[..., t] = self.dcdxu(*_in)
-        #     self.cx[..., t] = self.dcdx(*_in)
-        #     self.cu[..., t] = self.dcdu(*_in)
+            _in = tuple([x[..., t], _u[..., t]])
+            self.Cxx[..., t] = self.dcdxx(*_in)
+            self.Cuu[..., t] = self.dcduu(*_in)
+            self.Cxu[..., t] = self.dcdxu(*_in)
+            self.cx[..., t] = self.dcdx(*_in)
+            self.cu[..., t] = self.dcdu(*_in)
 
 
 class LinearDynamics:

@@ -74,7 +74,7 @@ class MFGPS:
 
             for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
-                u = np.clip(u, -self.ulim, self.ulim)
+                # u = np.clip(u, -self.ulim, self.ulim)
                 data['u'][..., t, n] = u
 
                 # expose true reward function
@@ -142,9 +142,11 @@ class MFGPS:
                                 xvalue.v0_softmax[..., 0])
         dual += alpha * self.kl_bound
 
-        # gradient
+        # gradient of primal
         grad = self.kl_bound - self.kldiv(lgc, xdist)
 
+        # It is weird that we have to pass the negative gradient
+        # Think of primal/dual gradient and minimization of dual
         return -1. * np.array([dual]), -1. * np.array([grad])
 
     def kldiv(self, lgc, xdist):
@@ -197,12 +199,12 @@ class MFGPS:
 
         for iter in range(nb_iter):
             # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1e8]),
+            res = sc.optimize.minimize(self.dual, np.array([-1e4]),
                                        method='SLSQP',
                                        jac=True,
-                                       bounds=((-1e8, -1e-8), ),
+                                       bounds=((-1e16, -1e-16), ),
                                        options={'disp': False, 'maxiter': 10000,
-                                                'ftol': 1e-6})
+                                                'ftol': 1e-12})
             self.alpha = res.x
 
             # re-compute after opt.
