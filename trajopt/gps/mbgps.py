@@ -126,9 +126,11 @@ class MBGPS:
                                 xvalue.v0_softmax[..., 0])
         dual += alpha * self.kl_bound
 
-        # gradient
+        # gradient of primal
         grad = self.kl_bound - self.kldiv(lgc, xdist)
 
+        # It is weird that we have to pass the negative gradient
+        # Think of primal/dual gradient and minimization of dual
         return -1. * np.array([dual]), -1. * np.array([grad])
 
     def kldiv(self, lgc, xdist):
