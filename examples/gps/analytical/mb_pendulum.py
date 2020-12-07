@@ -7,7 +7,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # pendulum env
-env = gym.make('Pendulum-TO-v1')
+env = gym.make('Pendulum-TO-v0')
 env._max_episode_steps = 10000
 env.unwrapped._dt = 0.05
 
