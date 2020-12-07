@@ -26,6 +26,21 @@ class Gaussian:
         pass
 
 
+class MatrixNormalParameters:
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
+        self.nb_steps = nb_steps
+
+        self.dm_param = self.dm_state * (self.dm_state + self.dm_act + 1)
+
+        self.mu = np.zeros((self.dm_param, self.nb_steps))
+
+        self.sigma = np.zeros((self.dm_param, self.dm_param, self.nb_steps))
+        for t in range(self.nb_steps):
+            self.sigma[..., t] = 100. * np.eye(self.dm_param)
+
+
 class QuadraticStateValue:
     def __init__(self, dm_state, nb_steps):
         self.dm_state = dm_state
