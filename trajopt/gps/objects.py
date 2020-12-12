@@ -1,8 +1,6 @@
 import autograd.numpy as np
 from autograd import jacobian, hessian
 
-from pathos.multiprocessing import ProcessingPool as Pool
-
 
 class Gaussian:
     def __init__(self, nb_dim, nb_steps):
@@ -107,12 +105,12 @@ class AnalyticalQuadraticCost(QuadraticCost):
     def evalf(self, x, u, a):
         return self.f(x, u, a)
 
-    def taylor_expansion(self, x, u):
+    def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
 
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t]])
+            _in = tuple([x[..., t], _u[..., t], a[t]])
             self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
             self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
             self.Cxu[..., t] = self.dcdxu(*_in)
@@ -178,8 +176,6 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
     def extended_kalman(self, init_state, lgc, ulim):
         lgd = LinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
 
-        pool = Pool(processes=-1)
-
         xdist = Gaussian(self.dm_state, self.nb_steps + 1)
         udist = Gaussian(self.dm_act, self.nb_steps)
 
@@ -189,30 +185,26 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
             udist.mu[..., t] = np.clip(lgc.mean(xdist.mu[..., t], t), - ulim, ulim)
             xdist.mu[..., t + 1] = self.evalf(xdist.mu[..., t], udist.mu[..., t])
 
-        # parallel autograd linearization around mean traj.
-        def _loop(t):
-            return self.taylor_expansion(xdist.mu[..., t], udist.mu[..., t])
-
-        res = pool.map(_loop, range(self.nb_steps))
         for t in range(self.nb_steps):
-            lgd.A[..., t], lgd.B[..., t], lgd.c[..., t], lgd.sigma[..., t] = res[t]
+            lgd.A[..., t], lgd.B[..., t], lgd.c[..., t], lgd.sigma[..., t] =\
+                self.taylor_expansion(xdist.mu[..., t], udist.mu[..., t])
 
             # construct variace of next time step with extend Kalman filtering
-            _mu_x, _sigma_x = xdist.mu[..., t], xdist.sigma[..., t]
-            _K, _kff, _ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
+            mu_x, sigma_x = xdist.mu[..., t], xdist.sigma[..., t]
+            K, kff, _ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
 
             # propagate variance of action dist.
-            _u_sigma = _ctl_sigma + _K @ _sigma_x @ _K.T
-            _u_sigma = 0.5 * (_u_sigma + _u_sigma.T)
-            udist.sigma[..., t] = _u_sigma
+            u_sigma = _ctl_sigma + K @ sigma_x @ K.T
+            u_sigma = 0.5 * (u_sigma + u_sigma.T)
+            udist.sigma[..., t] = u_sigma
 
-            _AB = np.hstack((lgd.A[..., t], lgd.B[..., t]))
-            _sigma_xu = np.vstack((np.hstack((_sigma_x, _sigma_x @ _K.T)),
-                                   np.hstack((_K @ _sigma_x, _u_sigma))))
+            AB = np.hstack((lgd.A[..., t], lgd.B[..., t]))
+            sigma_xu = np.vstack((np.hstack((sigma_x, sigma_x @ K.T)),
+                                  np.hstack((K @ sigma_x, u_sigma))))
 
-            _sigma_xn = lgd.sigma[..., t] + _AB @ _sigma_xu @ _AB.T
-            _sigma_xn = 0.5 * (_sigma_xn + _sigma_xn.T)
-            xdist.sigma[..., t + 1] = _sigma_xn
+            sigma_xn = lgd.sigma[..., t] + AB @ sigma_xu @ AB.T
+            sigma_xn = 0.5 * (sigma_xn + sigma_xn.T)
+            xdist.sigma[..., t + 1] = sigma_xn
 
         return xdist, udist, lgd
 
@@ -228,8 +220,8 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
             from mimo.distributions import LinearGaussianWithMatrixNormalWishart
 
             hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
-                             K=1e-12 * np.eye(self.dm_state + self.dm_act + 1),
-                             psi=np.eye(self.dm_state),
+                             K=1e-6 * np.eye(self.dm_state + self.dm_act + 1),
+                             psi=1e16 * np.eye(self.dm_state),
                              nu=self.dm_state + 1)
             prior = MatrixNormalWishart(**hypparams)
 
