@@ -16,7 +16,8 @@ class MFGPS:
 
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
-                 kl_bound=0.1, kl_adaptive=False):
+                 kl_bound=0.1, kl_adaptive=False,
+                 activation=None):
 
         self.env = env
 
@@ -57,6 +58,13 @@ class MFGPS:
         self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
 
+        # activation of cost function in shape of sigmoid
+        if activation is None:
+            self.weighting = np.ones((self.nb_steps + 1, ))
+        else:
+            t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (t - activation['shift'])))
+
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
         self.last_return = - np.inf
@@ -78,14 +86,14 @@ class MFGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env_cost(x, u)
+                c = self.env_cost(x, u, self.weighting[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
-                x, _, _, _ = self.env.step(np.clip(u, - self.ulim, self.ulim))
+                x, _, _, _ = self.env.step(u)
                 data['xn'][..., t, n] = x
 
-            c = self.env_cost(x, np.zeros((self.dm_act, )))
+            c = self.env_cost(x, np.zeros((self.dm_act, )), self.weighting[-1])
             data['c'][-1, n] = c
 
         return data
@@ -191,7 +199,7 @@ class MFGPS:
         self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
         # get quadratic cost around mean traj.
-        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
+        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
         # mean objective under current ctrl.
         self.last_return = np.mean(np.sum(self.data['c'], axis=0))
@@ -204,7 +212,7 @@ class MFGPS:
                                        jac=True,
                                        bounds=((-1e16, -1e-16), ),
                                        options={'disp': False, 'maxiter': 10000,
-                                                'ftol': 1e-12})
+                                                'ftol': 1e-6})
             self.alpha = res.x
 
             # re-compute after opt.
@@ -247,7 +255,7 @@ class MFGPS:
                 self.xdist, self.udist, self.xudist = self.forward_pass(self.ctl)
 
                 # get quadratic cost around mean traj.
-                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
+                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
                 # mean objective under last dists.
                 _trace.append(_return)
@@ -260,12 +268,12 @@ class MFGPS:
                     self.kl_bound = self.kl_base * self.kl_mult
             else:
                 print("Something is wrong, KL not satisfied")
-                self.alpha = np.array([-1e4])
+                self.alpha = np.array([-1e8])
 
             if verbose:
-                print("iter: ", iter,
-                      " req. kl: ", self.kl_bound,
-                      " act. kl: ", kl,
-                      " return: ", _return)
+                if iter == 0:
+                    print("%6s %8s %8s" % ("", "kl", ""))
+                    print("%6s %6s %6s %12s" % ("iter", "req.", "act.", "return"))
+                print("%6i %6.2f %6.2f %12.2f" % (iter, self.kl_bound, kl, _return))
 
         return _trace

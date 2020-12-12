@@ -16,7 +16,8 @@ class MBGPS:
 
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
-                 kl_bound=0.1, kl_adaptive=False):
+                 kl_bound=0.1, kl_adaptive=False,
+                 activation=None):
 
         self.env = env
 
@@ -58,7 +59,16 @@ class MBGPS:
                                                     self.dm_state, self.dm_act, self.nb_steps)
 
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
-        self.ctl.kff = 1e-2 * np.random.randn(self.dm_act, self.nb_steps)
+        self.ctl.kff = 1e-4 * np.random.randn(self.dm_act, self.nb_steps)
+
+        # activation of cost function in shape of sigmoid
+        if activation is None:
+            self.weighting = np.ones((self.nb_steps + 1, ))
+        elif "mult" and "shift" in activation:
+            t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+            self.weighting = 1. / (1. + np.exp(- activation['mult'] * (t - activation['shift'])))
+        else:
+            raise NotImplementedError
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -69,8 +79,8 @@ class MBGPS:
 
         cost = np.zeros((self.nb_steps + 1, ))
         for t in range(self.nb_steps):
-            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t])
-        cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )))
+            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t], self.weighting[t])
+        cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
 
         return xdist, udist, lgd, cost
 
@@ -150,7 +160,7 @@ class MBGPS:
             plt.plot(t, self.xdist.mu[k, :], '-b')
             lb = self.xdist.mu[k, :] - 2. * np.sqrt(self.xdist.sigma[k, k, :])
             ub = self.xdist.mu[k, :] + 2. * np.sqrt(self.xdist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='blue', alpha='0.1')
+            plt.fill_between(t, lb, ub, color='blue', alpha=0.1)
 
         t = np.linspace(0, self.nb_steps, self.nb_steps)
         for k in range(self.dm_act):
@@ -158,7 +168,7 @@ class MBGPS:
             plt.plot(t, self.udist.mu[k, :], '-g')
             lb = self.udist.mu[k, :] - 2. * np.sqrt(self.udist.sigma[k, k, :])
             ub = self.udist.mu[k, :] + 2. * np.sqrt(self.udist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='green', alpha='0.1')
+            plt.fill_between(t, lb, ub, color='green', alpha=0.1)
 
         plt.show()
 
@@ -172,7 +182,7 @@ class MBGPS:
         self.dyn.params = lgd.A, lgd.B, lgd.c, lgd.sigma
 
         # get quadratic cost around mean traj.
-        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
+        self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
         # mean objective under current dists.
         self.last_return = np.sum(_cost)
@@ -183,7 +193,7 @@ class MBGPS:
             res = sc.optimize.minimize(self.dual, self.alpha,
                                        method='SLSQP',
                                        jac=True,
-                                       bounds=((-1e8, -1e-8), ),
+                                       bounds=((-1e16, -1e-16), ),
                                        options={'disp': False, 'maxiter': 10000,
                                                 'ftol': 1e-6})
             self.alpha = res.x
@@ -221,7 +231,7 @@ class MBGPS:
                 self.xdist, self.udist = xdist, udist
 
                 # update quadratic cost around mean traj.
-                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu)
+                self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
                 # update value functions
                 self.vfunc, self.qfunc = xvalue, xuvalue
@@ -237,12 +247,12 @@ class MBGPS:
                     self.kl_bound = self.kl_base * self.kl_mult
             else:
                 print("Something is wrong, KL not satisfied")
-                self.alpha = np.array([-1e4])
+                self.alpha = np.array([-1e8])
 
             if verbose:
-                print("iter: ", iter,
-                      " req. kl: ", self.kl_bound,
-                      " act. kl: ", kl,
-                      " return: ", _return)
+                if iter == 0:
+                    print("%6s %8s %8s" % ("", "kl", ""))
+                    print("%6s %6s %6s %12s" % ("iter", "req.", "act.", "return"))
+                print("%6i %6.2f %6.2f %12.2f" % (iter, self.kl_bound, kl, _return))
 
         return _trace
