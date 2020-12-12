@@ -32,6 +32,9 @@ class LQR(gym.Env):
 
         self._sigma = 1e-8 * np.eye(self.dm_state)
 
+        self._x_0 = np.array([5., 5.])
+        self._sigma_0 = 1e-2 * np.eye(self.dm_state)
+
         self.state = None
         self.np_random = None
 
@@ -90,9 +93,12 @@ class LQR(gym.Env):
         _x = np.clip(x, -self.xlim, self.xlim)
         return self._sigma
 
-    def cost(self, x, u):
-        return self.dt * ((x - self._g).T @ np.diag(self._gw) @ (x - self._g)
-                          + u.T @ np.diag(self._uw) @ u)
+    def cost(self, x, u, a):
+        if a:
+            return self.dt * ((x - self._g).T @ np.diag(self._gw) @ (x - self._g)
+                              + u.T @ np.diag(self._uw) @ u)
+        else:
+            return self.dt * u.T @ np.diag(self._uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -107,6 +113,10 @@ class LQR(gym.Env):
         self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma)
         return self.state, [], False, {}
 
+    def init(self):
+        return self._x_0, self._sigma_0
+
     def reset(self):
-        self.state = np.array([5., 5.])
+        _x_0, _sigma_0 = self.init()
+        self.state = self.np_random.multivariate_normal(mean=_x_0, cov=_sigma_0)
         return self.state
