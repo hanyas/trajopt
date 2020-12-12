@@ -10,14 +10,14 @@ warnings.filterwarnings("ignore")
 # cartpole env
 env = gym.make('Cartpole-TO-v1')
 env._max_episode_steps = 10000
-env.unwrapped._dt = 0.01
+env.unwrapped.dt = 0.05
 
 dm_state = env.observation_space.shape[0]
 dm_act = env.action_space.shape[0]
 
-horizon, nb_steps = 100, 500
+horizon, nb_steps = 25, 100
 
-env_sigma = env.unwrapped._sigma
+env_sigma = env.unwrapped.sigma
 
 state = np.zeros((dm_state, nb_steps + 1))
 action = np.zeros((dm_act, nb_steps))

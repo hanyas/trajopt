@@ -6,17 +6,19 @@ from trajopt.gps import MBGPS
 import warnings
 warnings.filterwarnings("ignore")
 
-# pendulum env
-env = gym.make('Pendulum-TO-v0')
+
+# double cartpole env
+env = gym.make('DoubleCartpole-TO-v0')
 env._max_episode_steps = 10000
-env.unwrapped._dt = 0.05
+env.unwrapped.dt = 0.01
+
 
 dm_state = env.observation_space.shape[0]
 dm_act = env.action_space.shape[0]
 
-horizon, nb_steps = 15, 150
+horizon, nb_steps = 100, 500
 
-env_sigma = env.unwrapped._sigma
+env_sigma = env.unwrapped.sigma
 
 state = np.zeros((dm_state, nb_steps + 1))
 action = np.zeros((dm_act, nb_steps))
@@ -38,12 +40,21 @@ import matplotlib.pyplot as plt
 
 plt.figure()
 
-plt.subplot(3, 1, 1)
+plt.subplot(7, 1, 1)
 plt.plot(state[0, :], '-b')
-plt.subplot(3, 1, 2)
+plt.subplot(7, 1, 2)
 plt.plot(state[1, :], '-b')
+plt.subplot(7, 1, 3)
+plt.plot(state[2, :], '-b')
 
-plt.subplot(3, 1, 3)
+plt.subplot(7, 1, 4)
+plt.plot(state[3, :], '-r')
+plt.subplot(7, 1, 5)
+plt.plot(state[4, :], '-r')
+plt.subplot(7, 1, 6)
+plt.plot(state[5, :], '-r')
+
+plt.subplot(7, 1, 7)
 plt.plot(action[0, :], '-g')
 
 plt.show()

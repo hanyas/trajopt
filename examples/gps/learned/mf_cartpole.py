@@ -8,14 +8,14 @@ warnings.filterwarnings("ignore")
 
 
 # pendulum task
-env = gym.make('Pendulum-TO-v0')
+env = gym.make('Cartpole-TO-v0')
 env._max_episode_steps = 100
 env.unwrapped.dt = 0.05
 
 solver = MFGPS(env, nb_steps=100,
                init_state=env.init(),
                init_action_sigma=1.0,
-               kl_bound=1.,
+               kl_bound=2.,
                activation={'mult': 1.5, 'shift': 95})
 
 # run gps

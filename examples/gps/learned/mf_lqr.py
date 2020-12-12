@@ -10,12 +10,12 @@ env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 100000
 
 alg = MFGPS(env, nb_steps=100,
-            kl_bound=100.,
+            kl_bound=5.,
             init_state=env.init(),
             init_action_sigma=100.)
 
 # run gps
-trace = alg.run(nb_episodes=1000, nb_iter=5, verbose=True)
+trace = alg.run(nb_episodes=10, nb_iter=10, verbose=True)
 
 # plot dists
 alg.plot()

@@ -13,24 +13,22 @@ def create_job(kwargs):
     import warnings
     warnings.filterwarnings("ignore")
 
-    # cartpole env
-    env = gym.make('Cartpole-TO-v1')
+    # pendulum env
+    env = gym.make('Pendulum-TO-v0')
     env._max_episode_steps = 10000
-    env.unwrapped._dt = 0.01
+    env.unwrapped.dt = 0.05
 
     dm_state = env.observation_space.shape[0]
     dm_act = env.action_space.shape[0]
 
-    horizon, nb_steps = 100, 500
-
-    env_sigma = env.unwrapped._sigma
+    horizon, nb_steps = 25, 100
 
     state = np.zeros((dm_state, nb_steps + 1))
     action = np.zeros((dm_act, nb_steps))
 
     state[:, 0] = env.reset()
     for t in range(nb_steps):
-        solver = MBGPS(env, init_state=tuple([state[:, t], env_sigma]),
+        solver = MBGPS(env, init_state=tuple([state[:, t], 1e-4 * np.eye(dm_state)]),
                        init_action_sigma=1., nb_steps=horizon, kl_bound=2.)
         trace = solver.run(nb_iter=10, verbose=False)
 
@@ -55,15 +53,13 @@ obs, act = parallel_gps(nb_jobs=12)
 
 # import matplotlib.pyplot as plt
 #
-# fig, ax = plt.subplots(nrows=5, ncols=1, figsize=(12, 4))
+# fig, ax = plt.subplots(nrows=3, ncols=1, figsize=(12, 4))
 # for _obs, _act in zip(obs, act):
-#     ax[0].plot(_obs[:, 0])
-#     ax[1].plot(_obs[:, 1])
-#     ax[2].plot(_obs[:, 2])
-#     ax[3].plot(_obs[:, 3])
-#     ax[4].plot(_act)
+#     ax[0].plot(_obs[:, :-1])
+#     ax[1].plot(_obs[:, -1])
+#     ax[2].plot(_act)
 # plt.show()
 
 import pickle
 data = {'obs': obs, 'act': act}
-pickle.dump(data, open("gps_cartpole_cart.pkl", "wb"))
+pickle.dump(data, open("gps_pendulum_cart.pkl", "wb"))
