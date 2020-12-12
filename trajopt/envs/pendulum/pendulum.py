@@ -7,7 +7,8 @@ from autograd import jacobian
 from autograd.tracer import getval
 
 
-def angle_normalize(x):
+def wrap_angle(x):
+    # wraps angle between [-pi, pi]
     return ((x + np.pi) % (2. * np.pi)) - np.pi
 
 
@@ -17,23 +18,26 @@ class Pendulum(gym.Env):
         self.dm_state = 2
         self.dm_act = 1
 
-        self._dt = 0.01
+        self.dt = 0.01
 
-        self._sigma = 1e-4 * np.eye(self.dm_state)
+        self.sigma = 1e-8 * np.eye(self.dm_state)
 
         # g = [th, thd]
-        self._g = np.array([0., 0.])
-        self._gw = np.array([1e0, 1e-1])
+        self.g = np.array([0., 0.])
+        self.gw = np.array([1e1, 1e-1])
 
         # x = [th, thd]
-        self._xmax = np.array([np.inf, 10.0])
-        self.observation_space = spaces.Box(low=-self._xmax,
-                                            high=self._xmax)
+        self.xmax = np.array([np.inf, np.inf])
+        self.observation_space = spaces.Box(low=-self.xmax,
+                                            high=self.xmax)
 
-        self._uw = np.array([1e-2])
-        self._umax = 2.5
-        self.action_space = spaces.Box(low=-self._umax,
-                                       high=self._umax, shape=(1,))
+        self.uw = np.array([1e-5])
+        self.umax = 2.5
+        self.action_space = spaces.Box(low=-self.umax,
+                                       high=self.umax, shape=(1,))
+
+        self.x0 = np.array([np.pi, 0.])
+        self.sigma0 = 1e-4 * np.eye(self.dm_state)
 
         self.state = None
         self.np_random = None
@@ -42,19 +46,11 @@ class Pendulum(gym.Env):
 
     @property
     def xlim(self):
-        return self._xmax
+        return self.xmax
 
     @property
     def ulim(self):
-        return self._umax
-
-    @property
-    def dt(self):
-        return self._dt
-
-    @property
-    def goal(self):
-        return self._g
+        return self.umax
 
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
@@ -72,8 +68,6 @@ class Pendulum(gym.Env):
         k4 = f(x + self.dt * k3, _u)
 
         xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
-
-        xn = np.hstack((angle_normalize(xn[0]), xn[1]))
         xn = np.clip(xn, -self.xlim, self.xlim)
 
         return xn
@@ -94,8 +88,6 @@ class Pendulum(gym.Env):
         k4 = f(x - self.dt * k3, _u)
 
         xn = x - self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
-
-        xn = np.hstack((angle_normalize(xn[0]), xn[1]))
         xn = np.clip(xn, -self.xlim, self.xlim)
 
         return xn
@@ -104,20 +96,24 @@ class Pendulum(gym.Env):
         return x
 
     def features_jacobian(self, x):
-        _J = jacobian(self.features, 0)
-        _j = self.features(x) - _J(x) @ x
-        return _J, _j
+        J = jacobian(self.features, 0)
+        j = self.features(x) - J(x) @ x
+        return J, j
 
     def noise(self, x=None, u=None):
         _u = np.clip(u, -self.ulim, self.ulim)
         _x = np.clip(x, -self.xlim, self.xlim)
-        return self._sigma
+        return self.sigma
 
-    def cost(self, x, u):
-        _J, _j = self.features_jacobian(getval(x))
-        _x = _J(getval(x)) @ x + _j
-        return self.dt * ((_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)
-                          + u.T @ np.diag(self._uw) @ u)
+    def cost(self, x, u, a):
+        if a:
+            x = np.hstack((wrap_angle(x[0]), x[1]))
+            J, j = self.features_jacobian(getval(x))
+            _x = J(getval(x)) @ x + j
+            return (_x - self.g).T @ np.diag(self.gw) @ (_x - self.g)\
+                   + u.T @ np.diag(self.uw) @ u
+        else:
+            return u.T @ np.diag(self.uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -132,11 +128,11 @@ class Pendulum(gym.Env):
         self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma)
         return self.state, [], False, {}
 
+    def init(self):
+        return self.x0, self.sigma0
+
     def reset(self):
-        _low, _high = np.array([np.pi - np.pi / 18., -0.1]),\
-                      np.array([np.pi + np.pi / 18., +0.1])
-        _x0 = self.np_random.uniform(low=_low, high=_high)
-        self.state = np.hstack((angle_normalize(_x0[0]), _x0[1]))
+        self.state = self.np_random.multivariate_normal(mean=self.x0, cov=self.sigma0)
         return self.state
 
 
@@ -146,8 +142,8 @@ class PendulumWithCartesianCost(Pendulum):
         super(PendulumWithCartesianCost, self).__init__()
 
         # g = [cs_th, sn_th, dth]
-        self._g = np.array([1., 0., 0.])
-        self._gw = np.array([1e0, 1e0, 1e-1])
+        self.g = np.array([1., 0., 0.])
+        self.gw = np.array([1e1, 1e1, 1e-1])
 
     def features(self, x):
         return np.array([np.cos(x[0]), np.sin(x[0]), x[1]])

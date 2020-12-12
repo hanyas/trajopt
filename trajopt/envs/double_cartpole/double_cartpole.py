@@ -7,7 +7,8 @@ from autograd import jacobian
 from autograd.tracer import getval
 
 
-def angle_normalize(x):
+def wrap_angle(x):
+    # wraps angle between [-pi, pi]
     return ((x + np.pi) % (2. * np.pi)) - np.pi
 
 
@@ -17,22 +18,25 @@ class DoubleCartpole(gym.Env):
         self.dm_state = 6
         self.dm_act = 1
 
-        self._dt = 0.01
+        self.dt = 0.01
 
-        self._sigma = 1e-4 * np.eye(self.dm_state)
+        self.sigma = 1e-8 * np.eye(self.dm_state)
 
         # x = [x, th1, th2, dx, dth1, dth2]
-        self._g = np.array([0., 2. * np.pi, 0., 0., 0., 0.])
-        self._gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1e-1])
+        self.g = np.array([0., 0., 0., 0., 0., 0.])
+        self.gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1e-1])
 
-        self._xmax = np.array([10., np.inf, np.inf, 25., 25., 25.])
-        self.observation_space = spaces.Box(low=-self._xmax,
-                                            high=self._xmax)
+        self.xmax = np.array([10., np.inf, np.inf, np.inf, np.inf, np.inf])
+        self.observation_space = spaces.Box(low=-self.xmax,
+                                            high=self.xmax)
 
-        self._uw = np.array([1e-3])
-        self._umax = 5.0
-        self.action_space = spaces.Box(low=-self._umax,
-                                       high=self._umax, shape=(1,))
+        self.uw = np.array([1e-5])
+        self.umax = 5.0
+        self.action_space = spaces.Box(low=-self.umax,
+                                       high=self.umax, shape=(1,))
+
+        self.x0 = np.array([0., np.pi, np.pi, 0., 0., 0.])
+        self.sigma0 = 1e-4 * np.eye(self.dm_state)
 
         self.state = None
         self.np_random = None
@@ -41,19 +45,11 @@ class DoubleCartpole(gym.Env):
 
     @property
     def xlim(self):
-        return self._xmax
+        return self.xmax
 
     @property
     def ulim(self):
-        return self._umax
-
-    @property
-    def dt(self):
-        return self._dt
-
-    @property
-    def goal(self):
-        return self._g
+        return self.umax
 
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
@@ -139,8 +135,8 @@ class DoubleCartpole(gym.Env):
         C_x_dot = np.dot(C, x[3:].reshape((-1, 1)))
         x_dot_dot = np.dot(M_inv, action - C_x_dot - G).squeeze()
 
-        x_dot = x[3:] + x_dot_dot * self._dt
-        x_pos = x[:3] + x_dot * self._dt
+        x_dot = x[3:] + x_dot_dot * self.dt
+        x_pos = x[:3] + x_dot * self.dt
 
         xn = np.hstack((x_pos, x_dot))
 
@@ -151,20 +147,27 @@ class DoubleCartpole(gym.Env):
         return x
 
     def features_jacobian(self, x):
-        _J = jacobian(self.features, 0)
-        _j = self.features(x) - _J(x) @ x
-        return _J, _j
+        J = jacobian(self.features, 0)
+        j = self.features(x) - J(x) @ x
+        return J, j
 
     def noise(self, x=None, u=None):
         _u = np.clip(u, -self.ulim, self.ulim)
         _x = np.clip(x, -self.xlim, self.xlim)
-        return self._sigma
+        return self.sigma
 
-    def cost(self, x, u):
-        _J, _j = self.features_jacobian(getval(x))
-        _x = _J(getval(x)) @ x + _j
-        return self.dt * ((_x - self._g).T @ np.diag(self._gw) @ (_x - self._g)
-                          + u.T @ np.diag(self._uw) @ u)
+    def cost(self, x, u, a):
+        if a:
+            x = np.hstack((x[0],
+                           wrap_angle(x[1]),
+                           wrap_angle(x[2]),
+                           x[3], x[4], x[5]))
+            J, j = self.features_jacobian(getval(x))
+            _x = J(getval(x)) @ x + j
+            return (_x - self.g).T @ np.diag(self.gw) @ (_x - self.g)\
+                   + u.T @ np.diag(self.uw) @ u
+        else:
+            return u.T @ np.diag(self.uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -179,14 +182,11 @@ class DoubleCartpole(gym.Env):
         self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma)
         return self.state, [], False, {}
 
+    def init(self):
+        return self.x0, self.sigma0
+
     def reset(self):
-        _low, _high = np.array([0., np.pi - np.pi / 18., np.pi - np.pi / 18., 0., -0.1, -0.1]),\
-                      np.array([0., np.pi + np.pi / 18., np.pi + np.pi / 18., 0., 0.1, 0.1])
-        _x0 = self.np_random.uniform(low=_low, high=_high)
-        self.state = np.hstack((_x0[0],
-                                angle_normalize(_x0[1]),
-                                angle_normalize(_x0[2]),
-                                _x0[3], _x0[4], _x0[5]))
+        self.state = self.np_random.multivariate_normal(mean=self.x0, cov=self.sigma0)
         return self.state
 
 
@@ -196,15 +196,15 @@ class DoubleCartpoleWithCartesianCost(DoubleCartpole):
         super(DoubleCartpoleWithCartesianCost, self).__init__()
 
         # g = [x, cs_th1, sn_th1, cs_th2, sn_th2, dx, dth1, dth2]
-        self._g = np.array([0.,
-                            1., 0.,
-                            0., 0.,
-                            0., 0., 0.])
+        self.g = np.array([0.,
+                           1., 0.,
+                           0., 0.,
+                           0., 0., 0.])
 
-        self._gw = np.array([1e-1,
-                             1e1, 1e-1,
-                             1e1, 1e-1,
-                             1e-1, 1e-1, 1e-1])
+        self.gw = np.array([1e-1,
+                            1e1, 1e-1,
+                            1e1, 1e-1,
+                            1e-1, 1e-1, 1e-1])
 
     def features(self, x):
         return np.array([x[0],
