@@ -1,6 +1,9 @@
 import autograd.numpy as np
 from autograd import jacobian, hessian
 
+from mimo.distributions import MatrixNormalWishart
+from mimo.distributions import LinearGaussianWithMatrixNormalWishart
+
 
 class Gaussian:
     def __init__(self, nb_dim, nb_steps):
@@ -110,7 +113,7 @@ class AnalyticalQuadraticCost(QuadraticCost):
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
 
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t], a[t]])
+            _in = tuple([x[..., t], _u[..., t], _u[..., t - 1], a[t]])
             self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
             self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
             self.Cxu[..., t] = self.dcdxu(*_in)
@@ -211,25 +214,23 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
 
 # This part is still under construction
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
-    def __init__(self, dm_state, dm_act, nb_steps):
+    def __init__(self, dm_state, dm_act, nb_steps, prior):
         super(LearnedLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
+
+        hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
+                         K=prior['K'] * np.eye(self.dm_state + self.dm_act + 1),
+                         psi=prior['psi'] * np.eye(self.dm_state),
+                         nu=self.dm_state + prior['nu'])
+        self.prior = MatrixNormalWishart(**hypparams)
 
     def learn(self, data, stepwise=True):
         if stepwise:
-            from mimo.distributions import MatrixNormalWishart
-            from mimo.distributions import LinearGaussianWithMatrixNormalWishart
-
-            hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
-                             K=1e-6 * np.eye(self.dm_state + self.dm_act + 1),
-                             psi=1e16 * np.eye(self.dm_state),
-                             nu=self.dm_state + 1)
-            prior = MatrixNormalWishart(**hypparams)
 
             for t in range(self.nb_steps):
                 input = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T))
                 target = data['xn'][:, t, :].T
 
-                model = LinearGaussianWithMatrixNormalWishart(prior, affine=True)
+                model = LinearGaussianWithMatrixNormalWishart(self.prior, affine=True)
                 model = model.max_aposteriori(y=target, x=input)
 
                 self.A[..., t] = model.likelihood.A[:, :self.dm_state]

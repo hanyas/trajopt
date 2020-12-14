@@ -17,7 +17,8 @@ class MFGPS:
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
                  kl_bound=0.1, kl_adaptive=False,
-                 activation=None):
+                 activation=None, slew_rate=False,
+                 action_penalty=None, dyn_prior=None):
 
         self.env = env
 
@@ -26,6 +27,11 @@ class MFGPS:
         self.env_noise = self.env.unwrapped.noise
         self.env_cost = self.env.unwrapped.cost
         self.env_init = init_state
+
+        # use slew rate penalty or not
+        self.env.unwrapped.slew_rate = slew_rate
+        if action_penalty:
+            self.env.unwrapped.uw = action_penalty
 
         self.ulim = self.env.action_space.high
 
@@ -55,15 +61,22 @@ class MFGPS:
         self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
+        self.dyn_prior = dyn_prior
+        self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps, self.dyn_prior)
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
 
         # activation of cost function in shape of sigmoid
         if activation is None:
             self.weighting = np.ones((self.nb_steps + 1, ))
-        else:
+        elif "mult" and "shift" in activation:
             t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
             self.weighting = 1. / (1. + np.exp(- activation['mult'] * (t - activation['shift'])))
+        elif "discount" in activation:
+            self.weighting = np.ones((self.nb_steps + 1,))
+            gamma = activation["discount"] * np.ones((self.nb_steps, ))
+            self.weighting[1:] = np.cumprod(gamma)
+        else:
+            raise NotImplementedError
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
@@ -86,14 +99,14 @@ class MFGPS:
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env_cost(x, u, self.weighting[t])
+                c = self.env_cost(x, u, data['u'][..., t - 1, n], self.weighting[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
                 x, _, _, _ = self.env.step(u)
                 data['xn'][..., t, n] = x
 
-            c = self.env_cost(x, np.zeros((self.dm_act, )), self.weighting[-1])
+            c = self.env_cost(x, np.zeros((self.dm_act, )),  np.zeros((self.dm_act, )), self.weighting[-1])
             data['c'][-1, n] = c
 
         return data

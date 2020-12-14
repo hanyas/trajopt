@@ -65,12 +65,12 @@ class AnalyticalQuadraticCost(QuadraticCost):
     def evalf(self, x, u, a):
         return self.f(x, u, a)
 
-    def taylor_expansion(self, x, u):
+    def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
 
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t]])
+            _in = tuple([x[..., t], _u[..., t], _u[..., t - 1], a[t]])
             self.Cxx[..., t] = self.dcdxx(*_in)
             self.Cuu[..., t] = self.dcduu(*_in)
             self.Cxu[..., t] = self.dcdxu(*_in)

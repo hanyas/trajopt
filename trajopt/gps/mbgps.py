@@ -17,7 +17,8 @@ class MBGPS:
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
                  kl_bound=0.1, kl_adaptive=False,
-                 activation=None):
+                 activation=None, slew_rate=False,
+                 action_penalty=False):
 
         self.env = env
 
@@ -26,6 +27,11 @@ class MBGPS:
         self.env_noise = self.env.unwrapped.noise
         self.env_cost = self.env.unwrapped.cost
         self.env_init = init_state
+
+        # use slew rate penalty or not
+        self.env.unwrapped.slew_rate = slew_rate
+        if action_penalty:
+            self.env.unwrapped.uw = action_penalty
 
         self.ulim = self.env.action_space.high
 
@@ -67,6 +73,10 @@ class MBGPS:
         elif "mult" and "shift" in activation:
             t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
             self.weighting = 1. / (1. + np.exp(- activation['mult'] * (t - activation['shift'])))
+        elif "discount" in activation:
+            self.weighting = np.ones((self.nb_steps + 1,))
+            gamma = activation["discount"] * np.ones((self.nb_steps, ))
+            self.weighting[1:] = np.cumprod(gamma)
         else:
             raise NotImplementedError
 
@@ -79,8 +89,8 @@ class MBGPS:
 
         cost = np.zeros((self.nb_steps + 1, ))
         for t in range(self.nb_steps):
-            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t], self.weighting[t])
-        cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), self.weighting[-1])
+            cost[..., t] = self.env_cost(xdist.mu[..., t], udist.mu[..., t], udist.mu[..., t - 1], self.weighting[t])
+        cost[..., -1] = self.env_cost(xdist.mu[..., -1], np.zeros((self.dm_act, )), np.zeros((self.dm_act, )), self.weighting[-1])
 
         return xdist, udist, lgd, cost
 
