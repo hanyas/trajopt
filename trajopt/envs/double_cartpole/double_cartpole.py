@@ -30,6 +30,7 @@ class DoubleCartpole(gym.Env):
         self.observation_space = spaces.Box(low=-self.xmax,
                                             high=self.xmax)
 
+        self.slew_rate = False
         self.uw = np.array([1e-5])
         self.umax = 5.0
         self.action_space = spaces.Box(low=-self.umax,
@@ -156,18 +157,24 @@ class DoubleCartpole(gym.Env):
         _x = np.clip(x, -self.xlim, self.xlim)
         return self.sigma
 
-    def cost(self, x, u, a):
+    def cost(self, x, u, u_last, a):
+        c = 0.
+
+        if self.slew_rate:
+            c += (u - u_last).T @ np.diag(self.uw) @ (u - u_last)
+        else:
+            c += u.T @ np.diag(self.uw) @ u
+
         if a:
-            x = np.hstack((x[0],
+            y = np.hstack((x[0],
                            wrap_angle(x[1]),
                            wrap_angle(x[2]),
                            x[3], x[4], x[5]))
-            J, j = self.features_jacobian(getval(x))
-            _x = J(getval(x)) @ x + j
-            return (_x - self.g).T @ np.diag(self.gw) @ (_x - self.g)\
-                   + u.T @ np.diag(self.uw) @ u
-        else:
-            return u.T @ np.diag(self.uw) @ u
+            J, j = self.features_jacobian(getval(y))
+            z = J(getval(y)) @ y + j
+            c += (z - self.g).T @ np.diag(self.gw) @ (z - self.g)
+
+        return c
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)

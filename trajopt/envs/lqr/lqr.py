@@ -11,29 +11,29 @@ class LQR(gym.Env):
         self.dm_state = 2
         self.dm_act = 1
 
-        self._dt = 0.1
+        self.dt = 0.1
 
-        self._g = np.array([10., 10.])
-        self._gw = np.array([1e1, 1e1])
+        self.g = np.array([10., 10.])
+        self.gw = np.array([1e1, 1e1])
 
-        self._uw = np.array([1.])
-        self._umax = np.inf
-        self.action_space = spaces.Box(low=-self._umax,
-                                       high=self._umax, shape=(1,))
+        self.uw = np.array([1.])
+        self.umax = np.inf
+        self.action_space = spaces.Box(low=-self.umax,
+                                       high=self.umax, shape=(1,))
 
-        self._xmax = np.array([np.inf, np.inf])
-        self.observation_space = spaces.Box(low=-self._xmax,
-                                            high=self._xmax)
+        self.xmax = np.array([np.inf, np.inf])
+        self.observation_space = spaces.Box(low=-self.xmax,
+                                            high=self.xmax)
 
         # stochastic dynamics
-        self._A = np.array([[1.1, 0.], [1.0, 1.0]])
-        self._B = np.array([[1.], [0.]])
-        self._c = - self._A @ self._g  # stable at goal
+        self.A = np.array([[1.1, 0.], [1.0, 1.0]])
+        self.B = np.array([[1.], [0.]])
+        self.c = - self.A @ self.g  # stable at goal
 
-        self._sigma = 1e-8 * np.eye(self.dm_state)
+        self.sigma = 1e-8 * np.eye(self.dm_state)
 
-        self._x_0 = np.array([5., 5.])
-        self._sigma_0 = 1e-2 * np.eye(self.dm_state)
+        self.x0 = np.array([5., 5.])
+        self.sigma0 = 1e-2 * np.eye(self.dm_state)
 
         self.state = None
         self.np_random = None
@@ -42,25 +42,17 @@ class LQR(gym.Env):
 
     @property
     def xlim(self):
-        return self._xmax
+        return self.xmax
 
     @property
     def ulim(self):
-        return self._umax
-
-    @property
-    def dt(self):
-        return self._dt
-
-    @property
-    def goal(self):
-        return self._g
+        return self.umax
 
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
         def f(x, u):
-            return self._A @ x + self._B @ u + self._c
+            return self.A @ x + self.B @ u + self.c
 
         k1 = f(x, _u)
         k2 = f(x + 0.5 * self.dt * k1, _u)
@@ -76,7 +68,7 @@ class LQR(gym.Env):
         _u = np.clip(u, -self.ulim, self.ulim)
 
         def f(x, u):
-            return self._A @ x + self._B @ u + self._c
+            return self.A @ x + self.B @ u + self.c
 
         k1 = f(x, _u)
         k2 = f(x - 0.5 * self.dt * k1, _u)
@@ -91,14 +83,14 @@ class LQR(gym.Env):
     def noise(self, x=None, u=None):
         _u = np.clip(u, -self.ulim, self.ulim)
         _x = np.clip(x, -self.xlim, self.xlim)
-        return self._sigma
+        return self.sigma
 
-    def cost(self, x, u, a):
+    def cost(self, x, u, u_last, a):
         if a:
-            return self.dt * ((x - self._g).T @ np.diag(self._gw) @ (x - self._g)
-                              + u.T @ np.diag(self._uw) @ u)
+            return self.dt * ((x - self.g).T @ np.diag(self.gw) @ (x - self.g)
+                              + u.T @ np.diag(self.uw) @ u)
         else:
-            return self.dt * u.T @ np.diag(self._uw) @ u
+            return self.dt * u.T @ np.diag(self.uw) @ u
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -114,9 +106,8 @@ class LQR(gym.Env):
         return self.state, [], False, {}
 
     def init(self):
-        return self._x_0, self._sigma_0
+        return self.x0, self.sigma0
 
     def reset(self):
-        _x_0, _sigma_0 = self.init()
-        self.state = self.np_random.multivariate_normal(mean=_x_0, cov=_sigma_0)
+        self.state = self.np_random.multivariate_normal(mean=self.x0, cov=self.sigma0)
         return self.state
