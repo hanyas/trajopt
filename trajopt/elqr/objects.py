@@ -51,10 +51,10 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdu = jacobian(self.f, 1)
 
     def evalf(self, x, u):
-        return self.f(x, u)
+        return self.f(x, u, 0., 1)
 
     def taylor_expansion(self, x, u):
-        _in = tuple([x, u])
+        _in = tuple([x, u, 0., 1.])
         _Cxx = 0.5 * self.dcdxx(*_in)
         _Cuu = 0.5 * self.dcduu(*_in)
         _Cxu = self.dcdxu(*_in)
@@ -63,9 +63,12 @@ class AnalyticalQuadraticCost(QuadraticCost):
         _cu = self.dcdu(*_in) - self.dcduu(*_in) @ u - x.T @ self.dcdxu(*_in)
 
         # residual of taylor expansion
-        _c0 = self.f(*_in) - x.T @ _Cxx @ x -\
-              u.T @ _Cuu @ u - x.T @ _Cxu @ u -\
-              _cx.T @ x - _cu.T @ u
+        _c0 = self.f(*_in)\
+              - x.T @ _Cxx @ x\
+              - u.T @ _Cuu @ u\
+              - x.T @ _Cxu @ u\
+              - _cx.T @ x\
+              - _cu.T @ u
 
         return _Cxx, _Cuu, _Cxu, _cx, _cu, _c0
 

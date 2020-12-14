@@ -16,7 +16,7 @@ class eLQR:
         self.env_dyn = self.env.unwrapped.dynamics
         self.env_inv_dyn = self.env.unwrapped.inverse_dynamics
         self.env_cost = self.env.unwrapped.cost
-        self.env_goal = self.env.unwrapped.goal
+        self.env_goal = self.env.unwrapped.g
         self.env_init = init_state
 
         self.ulim = self.env.action_space.high

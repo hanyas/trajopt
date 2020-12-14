@@ -62,8 +62,8 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdx = jacobian(self.f, 0)
         self.dcdu = jacobian(self.f, 1)
 
-    def evalf(self, x, u, a):
-        return self.f(x, u, a)
+    def evalf(self, x, u, u_last, a):
+        return self.f(x, u, u_last, a)
 
     def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
