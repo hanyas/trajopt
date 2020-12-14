@@ -14,10 +14,10 @@ env.unwrapped.dt = 0.01
 solver = MBGPS(env, nb_steps=500,
                init_state=env.init(),
                init_action_sigma=1.0,
-               kl_bound=1.,
-               activation={'mult': 1.5, 'shift': 235})
+               kl_bound=2., slew_rate=False,
+               action_penalty=np.array([1e-5]))
 
-trace = solver.run(nb_iter=50, verbose=True)
+trace = solver.run(nb_iter=250, verbose=True)
 
 # plot dists
 solver.plot()

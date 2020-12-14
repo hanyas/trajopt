@@ -12,11 +12,14 @@ env = gym.make('Cartpole-TO-v0')
 env._max_episode_steps = 100
 env.unwrapped.dt = 0.05
 
+prior = {'K': 1e-6, 'psi': 1e8, 'nu': 0.1}
+
 solver = MFGPS(env, nb_steps=100,
                init_state=env.init(),
                init_action_sigma=1.0,
-               kl_bound=2.,
-               activation={'mult': 1.5, 'shift': 95})
+               kl_bound=3., slew_rate=False,
+               action_penalty=np.array([1e-5]),
+               dyn_prior=prior)
 
 # run gps
 trace = solver.run(nb_episodes=50, nb_iter=25, verbose=True)

@@ -9,13 +9,16 @@ warnings.filterwarnings("ignore")
 env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 100000
 
+prior = {'K': 1e-6, 'psi': 1e-2, 'nu': 0.1}
+
 alg = MFGPS(env, nb_steps=100,
             kl_bound=5.,
             init_state=env.init(),
-            init_action_sigma=100.)
+            init_action_sigma=100.,
+            dyn_prior=prior)
 
 # run gps
-trace = alg.run(nb_episodes=10, nb_iter=10, verbose=True)
+trace = alg.run(nb_episodes=25, nb_iter=25, verbose=True)
 
 # plot dists
 alg.plot()
