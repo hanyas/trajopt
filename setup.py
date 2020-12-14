@@ -50,7 +50,7 @@ setup(
     install_requires=['numpy', 'scipy', 'matplotlib', 'scikit-learn',
                       'autograd', 'gym', 'pathos'],
     ext_modules=[CMakeExtension('gps', './trajopt/gps/'),
-                 CMakeExtension('gps', './trajopt/rgps/'),
+                 CMakeExtension('rgps', './trajopt/rgps/'),
                  CMakeExtension('ilqr', './trajopt/ilqr/'),
                  CMakeExtension('bspilqr', './trajopt/bspilqr/')],
     cmdclass=dict(build_ext=CMakeBuild),
