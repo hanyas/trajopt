@@ -273,11 +273,11 @@ class LinearGaussianControl:
             return mu
 
     def forward(self, xdist, t):
-        _x_mu, _x_sigma = xdist.mu[..., t], xdist.sigma[..., t]
-        _K, _kff, _ctl_sigma = self.K[..., t], self.kff[..., t], self.sigma[..., t]
+        x_mu, x_sigma = xdist.mu[..., t], xdist.sigma[..., t]
+        K, kff, ctl_sigma = self.K[..., t], self.kff[..., t], self.sigma[..., t]
 
-        _u_mu = _K @ _x_mu + _kff
-        _u_sigma = _ctl_sigma + _K @ _x_sigma @ _K.T
-        _u_sigma = 0.5 * (_u_sigma + _u_sigma.T)
+        u_mu = K @ x_mu + kff
+        u_sigma = ctl_sigma + K @ x_sigma @ K.T
+        u_sigma = 0.5 * (u_sigma + u_sigma.T)
 
-        return _u_mu, _u_sigma
+        return u_mu, u_sigma

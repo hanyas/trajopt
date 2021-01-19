@@ -1,9 +1,12 @@
+import autograd.numpy as np
+
 import gym
 from trajopt.gps import MFGPS
 
 import warnings
 warnings.filterwarnings("ignore")
 
+np.random.seed(1337)
 
 # lqr task
 env = gym.make('LQR-TO-v0')
