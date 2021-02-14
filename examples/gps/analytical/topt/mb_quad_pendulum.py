@@ -7,17 +7,18 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # pendulum env
-env = gym.make('DoubleCartpole-TO-v0')
-env._max_episode_steps = 500
+env = gym.make('QuadPendulum-TO-v0')
+env._max_episode_steps = 100
 env.unwrapped.dt = 0.01
 
 solver = MBGPS(env, nb_steps=500,
                init_state=env.init(),
-               init_action_sigma=1.0,
-               kl_bound=2., slew_rate=False,
-               action_penalty=np.array([1e-5]))
+               init_action_sigma=5.0,
+               kl_bound=10.,
+               slew_rate=False,
+               action_penalty=1e-5)
 
-trace = solver.run(nb_iter=250, verbose=True)
+trace = solver.run(nb_iter=50, verbose=True)
 
 # plot dists
 solver.plot()

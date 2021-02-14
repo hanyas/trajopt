@@ -3,6 +3,8 @@ import autograd.numpy as np
 import gym
 from trajopt.gps import MFGPS
 
+import matplotlib.pyplot as plt
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -12,12 +14,14 @@ np.random.seed(1337)
 env = gym.make('LQR-TO-v0')
 env._max_episode_steps = 100000
 
-prior = {'K': 1e-6, 'psi': 1e-2, 'nu': 0.1}
+env.seed(1337)
 
-alg = MFGPS(env, nb_steps=100,
-            kl_bound=5.,
+prior = {'K': 1e-6, 'psi': 1e-6, 'nu': 0.1}
+
+alg = MFGPS(env, nb_steps=60,
             init_state=env.init(),
             init_action_sigma=100.,
+            kl_bound=1e-1,
             dyn_prior=prior)
 
 # run gps
@@ -28,8 +32,6 @@ alg.plot()
 
 # execute and plot
 data = alg.sample(25, stoch=True)
-
-import matplotlib.pyplot as plt
 
 plt.figure()
 for k in range(alg.dm_state):

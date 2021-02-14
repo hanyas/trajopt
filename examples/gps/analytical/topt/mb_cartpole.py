@@ -3,28 +3,34 @@ import autograd.numpy as np
 import gym
 from trajopt.gps import MBGPS
 
+import matplotlib.pyplot as plt
+
 import warnings
 warnings.filterwarnings("ignore")
 
-# pendulum env
+np.random.seed(1337)
+
+# cartpole env
 env = gym.make('Cartpole-TO-v0')
-env._max_episode_steps = 500
-env.unwrapped.dt = 0.01
+env._max_episode_steps = 100
+env.unwrapped.dt = 0.05
 
-solver = MBGPS(env, nb_steps=500,
+env.seed(1337)
+
+solver = MBGPS(env, nb_steps=100,
                init_state=env.init(),
-               init_action_sigma=1.0,
-               kl_bound=10., slew_rate=False,
-               action_penalty=np.array([1e-5]))
+               init_action_sigma=10.0,
+               kl_bound=1e-2,
+               slew_rate=False,
+               action_penalty=1e-5,
+               activation={'mult': 1., 'shift': 80})
 
-trace = solver.run(nb_iter=50, verbose=True)
+trace = solver.run(nb_iter=25, verbose=True)
 
 # plot dists
 solver.plot()
 
 # plot objective
-import matplotlib.pyplot as plt
-
 plt.figure()
 plt.plot(trace)
 plt.show()

@@ -15,8 +15,8 @@ env._max_episode_steps = 100000
 prior = {'K': 1e-6}
 
 alg = MFRGPS(env, nb_steps=60,
-             policy_kl_bound=0.5,
-             param_kl_bound=10.,
+             policy_kl_bound=10.,
+             param_kl_bound=1000.,
              init_state=env.init(),
              init_action_sigma=100.,
              prior=prior)

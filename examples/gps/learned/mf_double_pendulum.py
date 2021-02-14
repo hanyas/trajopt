@@ -10,27 +10,27 @@ warnings.filterwarnings("ignore")
 
 np.random.seed(1337)
 
-# cartpole task
-env = gym.make('Cartpole-TO-v0')
+# pendulum task
+env = gym.make('DoublePendulum-TO-v0')
 env._max_episode_steps = 100
 env.unwrapped.dt = 0.05
 
 env.seed(1337)
 
-# prior = {'K': 1e-6, 'psi': 1e8, 'nu': 0.1}
+# prior = {'K': 1e-3, 'psi': 1e-8, 'nu': 0.1}
 prior = {'K': 1e-6}
 
 solver = MFGPS(env, nb_steps=100,
                init_state=env.init(),
-               init_action_sigma=5.0,
-               kl_bound=1e-2,
+               init_action_sigma=10.,
+               kl_bound=1e-1,
                slew_rate=False,
-               action_penalty=1e-3,
+               action_penalty=1,
                dyn_prior=prior,
                activation={'mult': 1., 'shift': 80})
 
 # run gps
-trace = solver.run(nb_episodes=50, nb_iter=25, verbose=True)
+trace = solver.run(nb_episodes=25, nb_iter=50, verbose=True)
 
 # execute and plot
 data = solver.sample(25, stoch=True)
