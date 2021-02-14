@@ -3,6 +3,12 @@ from .lqr.lqr import LQR
 from .pendulum.pendulum import Pendulum
 from .pendulum.pendulum import PendulumWithCartesianCost
 
+from .double_pendulum.double_pendulum import DoublePendulum
+from .double_pendulum.double_pendulum import DoublePendulumWithCartesianCost
+
+from .quad_pendulum.quad_pendulum import QuadPendulum
+from .quad_pendulum.quad_pendulum import QuadPendulumWithCartesianCost
+
 from .cartpole.cartpole import Cartpole
 from .cartpole.cartpole import CartpoleWithCartesianCost
 

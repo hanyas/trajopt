@@ -23,20 +23,24 @@ class DoubleCartpole(gym.Env):
         self.sigma = 1e-8 * np.eye(self.dm_state)
 
         # x = [x, th1, th2, dx, dth1, dth2]
-        self.g = np.array([0., 0., 0., 0., 0., 0.])
-        self.gw = np.array([1e-1, 1e1, 1e1, 1e-1, 1e-1, 1e-1])
+        self.g = np.array([0., 0., 0.,
+                           0., 0., 0.])
+        self.gw = np.array([1e1, 1e4, 1e4,
+                            1e0, 1e0, 1e0])
 
-        self.xmax = np.array([10., np.inf, np.inf, np.inf, np.inf, np.inf])
+        self.xmax = np.array([10., np.inf, np.inf,
+                              np.inf, np.inf, np.inf])
         self.observation_space = spaces.Box(low=-self.xmax,
                                             high=self.xmax)
 
         self.slew_rate = False
-        self.uw = np.array([1e-5])
-        self.umax = 5.0
+        self.uw = 1e-5 * np.ones((self.dm_act, ))
+        self.umax = 5.0 * np.ones((self.dm_act, ))
         self.action_space = spaces.Box(low=-self.umax,
                                        high=self.umax, shape=(1,))
 
-        self.x0 = np.array([0., np.pi, np.pi, 0., 0., 0.])
+        self.x0 = np.array([0., np.pi, np.pi,
+                            0., 0., 0.])
         self.sigma0 = 1e-4 * np.eye(self.dm_state)
 
         self.state = None
@@ -69,79 +73,83 @@ class DoubleCartpole(gym.Env):
         Mt = Mc + Mp1 + Mp2
         L1 = 0.3365
         L2 = 0.3365
-        l1 = L1 / 2
-        l2 = L2 / 2
-        J1 = Mp1 * L1 / 12
-        J2 = Mp2 * L2 / 12
+        l1 = L1 / 2.
+        l2 = L2 / 2.
+        J1 = Mp1 * L1 / 12.
+        J2 = Mp2 * L2 / 12.
 
-        q = x[0]
-        th1 = x[1]
-        th2 = x[2]
-        q_dot = x[3]
-        th_dot1 = x[4]
-        th_dot2 = x[5]
+        def f(x, u):
 
-        sth1 = np.sin(th1)
-        cth1 = np.cos(th1)
-        sth2 = np.sin(th2)
-        cth2 = np.cos(th2)
-        sdth = np.sin(th1 - th2)
-        cdth = np.cos(th1 - th2)
+            q = x[0]
+            th1 = x[1]
+            th2 = x[2]
+            dq = x[3]
+            dth1 = x[4]
+            dth2 = x[5]
 
-        # helpers
-        l1_mp1_mp2 = Mp1 * l1 + Mp2 * L2
-        l1_mp1_mp2_cth1 = l1_mp1_mp2 * cth1
-        Mp2_l2 = Mp2 * l2
-        Mp2_l2_cth2 = Mp2_l2 * cth2
-        l1_l2_Mp2 = L1 * l2 * Mp2
-        l1_l2_Mp2_cdth = l1_l2_Mp2 * cdth
+            s1 = np.sin(th1)
+            c1 = np.cos(th1)
+            s2 = np.sin(th2)
+            c2 = np.cos(th2)
+            sdth = np.sin(th1 - th2)
+            cdth = np.cos(th1 - th2)
 
-        # inertia
-        M11 = Mt
-        M12 = l1_mp1_mp2_cth1
-        M13 = Mp2_l2_cth2
-        M21 = l1_mp1_mp2_cth1
-        M22 = (l1 ** 2) * Mp1 + (L1 ** 2) * Mp2 + J1
-        M23 = l1_l2_Mp2_cdth
-        M31 = Mp2_l2_cth2
-        M32 = l1_l2_Mp2_cdth
-        M33 = (l2 ** 2) * Mp2 + J2
+            # helpers
+            l1_mp1_mp2 = Mp1 * l1 + Mp2 * L2
+            l1_mp1_mp2_c1 = l1_mp1_mp2 * c1
+            Mp2_l2 = Mp2 * l2
+            Mp2_l2_c2 = Mp2_l2 * c2
+            l1_l2_Mp2 = L1 * l2 * Mp2
+            l1_l2_Mp2_cdth = l1_l2_Mp2 * cdth
 
-        # coreolis
-        C11 = 0.
-        C12 = -l1_mp1_mp2 * th_dot1 * sth1
-        C13 = -Mp2_l2 * th_dot2 * sth2
-        C21 = 0.
-        C22 = 0.
-        C23 = l1_l2_Mp2 * th_dot2 * sdth
-        C31 = 0.
-        C32 = -l1_l2_Mp2 * th_dot1 * sdth
-        C33 = 0.
+            # inertia
+            M11 = Mt
+            M12 = l1_mp1_mp2_c1
+            M13 = Mp2_l2_c2
+            M21 = l1_mp1_mp2_c1
+            M22 = (l1 ** 2) * Mp1 + (L1 ** 2) * Mp2 + J1
+            M23 = l1_l2_Mp2_cdth
+            M31 = Mp2_l2_c2
+            M32 = l1_l2_Mp2_cdth
+            M33 = (l2 ** 2) * Mp2 + J2
 
-        # gravity
-        G11 = 0.
-        G21 = - (Mp1 * l1 + Mp2 * L1) * g * sth1
-        G31 = - Mp2 * l2 * g * sth2
+            # coreolis
+            C11 = 0.
+            C12 = - l1_mp1_mp2 * dth1 * s1
+            C13 = - Mp2_l2 * dth2 * s2
+            C21 = 0.
+            C22 = 0.
+            C23 = l1_l2_Mp2 * dth2 * sdth
+            C31 = 0.
+            C32 = - l1_l2_Mp2 * dth1 * sdth
+            C33 = 0.
 
-        # make matrices
-        M = np.vstack((np.hstack((M11, M12, M13)), np.hstack((M21, M22, M23)), np.hstack((M31, M32, M33))))
+            # gravity
+            G11 = 0.
+            G21 = - (Mp1 * l1 + Mp2 * L1) * g * s1
+            G31 = - Mp2 * l2 * g * s2
 
-        C = np.vstack((np.hstack((C11, C12, C13)), np.hstack((C21, C22, C23)), np.hstack((C31, C32, C33))))
+            # make matrices
+            M = np.vstack((np.hstack((M11, M12, M13)), np.hstack((M21, M22, M23)), np.hstack((M31, M32, M33))))
+            C = np.vstack((np.hstack((C11, C12, C13)), np.hstack((C21, C22, C23)), np.hstack((C31, C32, C33))))
+            G = np.vstack((G11, G21, G31))
 
-        G = np.vstack((G11, G21, G31))
+            action = np.vstack((u, 0.0, 0.0))
 
-        action = np.vstack((_u, 0.0, 0.0))
+            M_inv = np.linalg.inv(M)
+            C_dx = np.dot(C, x[3:].reshape((-1, 1)))
+            ddx = np.dot(M_inv, action - C_dx - G).squeeze()
 
-        M_inv = np.linalg.inv(M)
-        C_x_dot = np.dot(C, x[3:].reshape((-1, 1)))
-        x_dot_dot = np.dot(M_inv, action - C_x_dot - G).squeeze()
+            return np.hstack((dq, dth1, dth2, ddx))
 
-        x_dot = x[3:] + x_dot_dot * self.dt
-        x_pos = x[:3] + x_dot * self.dt
+        k1 = f(x, _u)
+        k2 = f(x + 0.5 * self.dt * k1, _u)
+        k3 = f(x + 0.5 * self.dt * k2, _u)
+        k4 = f(x + self.dt * k3, _u)
 
-        xn = np.hstack((x_pos, x_dot))
-
+        xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
         xn = np.clip(xn, -self.xlim, self.xlim)
+
         return xn
 
     def features(self, x):
@@ -166,13 +174,14 @@ class DoubleCartpole(gym.Env):
             c += u.T @ np.diag(self.uw) @ u
 
         if a:
-            y = np.hstack((x[0],
-                           wrap_angle(x[1]),
-                           wrap_angle(x[2]),
-                           x[3], x[4], x[5]))
+            y = x
+            # y = np.hstack((x[0],
+            #                wrap_angle(x[1]),
+            #                wrap_angle(x[2]),
+            #                x[3], x[4], x[5]))
             J, j = self.features_jacobian(getval(y))
             z = J(getval(y)) @ y + j
-            c += (z - self.g).T @ np.diag(self.gw) @ (z - self.g)
+            c += a * (z - self.g).T @ np.diag(self.gw) @ (z - self.g)
 
         return c
 
@@ -205,13 +214,13 @@ class DoubleCartpoleWithCartesianCost(DoubleCartpole):
         # g = [x, cs_th1, sn_th1, cs_th2, sn_th2, dx, dth1, dth2]
         self.g = np.array([0.,
                            1., 0.,
-                           0., 0.,
+                           1., 0.,
                            0., 0., 0.])
 
-        self.gw = np.array([1e-1,
-                            1e1, 1e-1,
-                            1e1, 1e-1,
-                            1e-1, 1e-1, 1e-1])
+        self.gw = np.array([1e1,
+                            1e4, 1e4,
+                            1e4, 1e4,
+                            1e0, 1e0, 1e0])
 
     def features(self, x):
         return np.array([x[0],

@@ -19,6 +19,30 @@ register(
 )
 
 register(
+    id='DoublePendulum-TO-v0',
+    entry_point='trajopt.envs:DoublePendulum',
+    max_episode_steps=1000,
+)
+
+register(
+    id='DoublePendulum-TO-v1',
+    entry_point='trajopt.envs:DoublePendulumWithCartesianCost',
+    max_episode_steps=1000,
+)
+
+register(
+    id='QuadPendulum-TO-v0',
+    entry_point='trajopt.envs:QuadPendulum',
+    max_episode_steps=1000,
+)
+
+register(
+    id='QuadPendulum-TO-v1',
+    entry_point='trajopt.envs:QuadPendulumWithCartesianCost',
+    max_episode_steps=1000,
+)
+
+register(
     id='Cartpole-TO-v0',
     entry_point='trajopt.envs:Cartpole',
     max_episode_steps=1000,

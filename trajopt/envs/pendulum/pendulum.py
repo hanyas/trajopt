@@ -24,7 +24,7 @@ class Pendulum(gym.Env):
 
         # g = [th, thd]
         self.g = np.array([0., 0.])
-        self.gw = np.array([1e1, 1e-1])
+        self.gw = np.array([1e4, 1e0])
 
         # x = [th, thd]
         self.xmax = np.array([np.inf, np.inf])
@@ -32,8 +32,8 @@ class Pendulum(gym.Env):
                                             high=self.xmax)
 
         self.slew_rate = False
-        self.uw = np.array([1e-5])
-        self.umax = 2.5
+        self.uw = 1e-5 * np.ones((self.dm_act, ))
+        self.umax = 10. * np.ones((self.dm_act, ))
         self.action_space = spaces.Box(low=-self.umax,
                                        high=self.umax, shape=(1,))
 
@@ -56,7 +56,7 @@ class Pendulum(gym.Env):
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
-        g, m, l, k = 10., 1., 1., 1e-3
+        g, m, l, k = 9.81, 1., 1., 0.025
 
         def f(x, u):
             th, dth = x
@@ -76,7 +76,7 @@ class Pendulum(gym.Env):
     def inverse_dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
-        g, m, l, k = 10., 1., 1., 1e-3
+        g, m, l, k = 9.81, 1., 1., 0.025
 
         def f(x, u):
             th, dth = x
@@ -115,10 +115,11 @@ class Pendulum(gym.Env):
             c += u.T @ np.diag(self.uw) @ u
 
         if a:
-            y = np.hstack((wrap_angle(x[0]), x[1]))
+            y = x
+            # y = np.hstack((wrap_angle(x[0]), x[1]))
             J, j = self.features_jacobian(getval(y))
             z = J(getval(y)) @ y + j
-            c += (z - self.g).T @ np.diag(self.gw) @ (z - self.g)
+            c += a * (z - self.g).T @ np.diag(self.gw) @ (z - self.g)
 
         return c
 
@@ -150,7 +151,7 @@ class PendulumWithCartesianCost(Pendulum):
 
         # g = [cs_th, sn_th, dth]
         self.g = np.array([1., 0., 0.])
-        self.gw = np.array([1e1, 1e1, 1e-1])
+        self.gw = np.array([1e4, 1e4, 1e0])
 
     def features(self, x):
         return np.array([np.cos(x[0]), np.sin(x[0]), x[1]])

@@ -12,35 +12,35 @@ def wrap_angle(x):
     return ((x + np.pi) % (2. * np.pi)) - np.pi
 
 
-class Cartpole(gym.Env):
+class DoublePendulum(gym.Env):
 
     def __init__(self):
         self.dm_state = 4
-        self.dm_act = 1
+        self.dm_act = 2
 
         self.dt = 0.01
 
         self.sigma = 1e-8 * np.eye(self.dm_state)
 
-        # g = [x, th, dx, dth]
+        # g = [th1, th2, dth1, dth2]
         self.g = np.array([0., 0.,
                            0., 0.])
-        self.gw = np.array([1e1, 1e4,
+        self.gw = np.array([1e4, 1e4,
                             1e0, 1e0])
 
-        # x = [x, th, dx, dth]
-        self.xmax = np.array([10., np.inf,
+        # x = [th, dth]
+        self.xmax = np.array([np.inf, np.inf,
                               np.inf, np.inf])
         self.observation_space = spaces.Box(low=-self.xmax,
                                             high=self.xmax)
 
         self.slew_rate = False
         self.uw = 1e-5 * np.ones((self.dm_act, ))
-        self.umax = 10.0 * np.ones((self.dm_act, ))
+        self.umax = 10. * np.ones((self.dm_act, ))
         self.action_space = spaces.Box(low=-self.umax,
-                                       high=self.umax, shape=(1,))
+                                       high=self.umax, shape=(2,))
 
-        self.x0 = np.array([0., np.pi,
+        self.x0 = np.array([np.pi, 0.,
                             0., 0.])
         self.sigma0 = 1e-4 * np.eye(self.dm_state)
 
@@ -60,36 +60,65 @@ class Cartpole(gym.Env):
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
-        # Equations: http://coneural.org/florian/papers/05_cart_pole.pdf
-        # x = [x, th, dx, dth]
+        # Code from PolicySearchToolbox
+
+        masses = np.array([1., 1.])
+        lengths = np.array([1., 1.])
+        friction = 0.025 * np.array([1., 1.])
         g = 9.81
-        Mc = 0.37
-        Mp = 0.127
-        Mt = Mc + Mp
-        l = 0.3365
-        fr = 0.005
+
+        inertias = masses * (lengths ** 2 + 1e-4) / 3.0
 
         def f(x, u):
-            q, th, dq, dth = x
+            th1, th2, dth1, dth2 = x
+            th1 = th1 + np.pi  # downward position = PI
 
-            sth = np.sin(th)
-            cth = np.cos(th)
+            u1, u2 = u
 
-            # This friction model is not exactly right
-            # It neglects the influence of the pole
-            num = g * sth + cth * (- (u - fr * dq) - Mp * l * dth**2 * sth) / Mt
-            denom = l * ((4. / 3.) - Mp * cth**2 / Mt)
-            ddth = num / denom
+            I1, I2 = inertias
+            l1, l2 = lengths
+            m1, m2 = masses
+            k1, k2 = friction
 
-            ddx = (u + Mp * l * (dth**2 * sth - ddth * cth)) / Mt
-            return np.hstack((dq, dth, ddx, ddth))
+            l1CM = l1 / 2.
+            l2CM = l2 / 2.
 
-        c1 = f(x, _u)
-        c2 = f(x + 0.5 * self.dt * c1, _u)
-        c3 = f(x + 0.5 * self.dt * c2, _u)
-        c4 = f(x + self.dt * c3, _u)
+            s1, c1 = np.sin(th1), np.cos(th1)
+            s2, c2 = np.sin(th2), np.cos(th2)
 
-        xn = x + self.dt / 6. * (c1 + 2. * c2 + 2. * c3 + c4)
+            h11 = I1 + I2 + l1CM * l1CM * m1 + l1 * l1 * m2\
+                  + l2CM * l2CM * m2 + 2. * l1 * l2CM * m2 * c2
+            h12 = I2 + l2CM * l2CM * m2 + l1 * l2CM * m2 * c2
+
+            b1 = g * l1CM * m1 * s1 + g * l1 * m2 * s1\
+                 + g * l2CM * m2 * c2 * s1\
+                 - 2. * dth1 * dth2 * l1 * l2CM * m2 * s2\
+                 - dth2 * dth2 * l1 * l2CM * m2 * s2\
+                 + g * l2CM * m2 * c1 * s2
+
+            h21 = I2 + l2CM * l2CM * m2 + l1 * l2CM * m2 * c2
+            h22 = I2 + l2CM * l2CM * m2
+
+            b2 = g * l2CM * m2 * c2 * s1\
+                 + dth1 * dth1 * l1 * l2CM * m2 * s2\
+                 + g * l2CM * m2 * c1 * s2
+
+            u1 = u1 - k1 * dth1
+            u2 = u2 - k2 * dth2
+
+            det = h11 * h22 - h12 * h21
+
+            ddth1 = (h22 * (u1 - b1) - h12 * (u2 - b2)) / det
+            ddth2 = (h11 * (u2 - b2) - h21 * (u1 - b1)) / det
+
+            return np.array([dth1, dth2, ddth1, ddth2])
+
+        k1 = f(x, _u)
+        k2 = f(x + 0.5 * self.dt * k1, _u)
+        k3 = f(x + 0.5 * self.dt * k2, _u)
+        k4 = f(x + self.dt * k3, _u)
+
+        xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
         xn = np.clip(xn, -self.xlim, self.xlim)
 
         return xn
@@ -117,8 +146,7 @@ class Cartpole(gym.Env):
 
         if a:
             y = x
-            # y = np.hstack((x[0], wrap_angle(x[1]),
-            #                x[2], x[3]))
+            # y = np.hstack((wrap_angle(x[0]), x[1]))
             J, j = self.features_jacobian(getval(y))
             z = J(getval(y)) @ y + j
             c += a * (z - self.g).T @ np.diag(self.gw) @ (z - self.g)
@@ -146,20 +174,20 @@ class Cartpole(gym.Env):
         return self.state
 
 
-class CartpoleWithCartesianCost(Cartpole):
+class DoublePendulumWithCartesianCost(DoublePendulum):
 
     def __init__(self):
-        super(CartpoleWithCartesianCost, self).__init__()
+        super(DoublePendulumWithCartesianCost, self).__init__()
 
-        # g = [x, cs_th, sn_th, dx, dth]
-        self.g = np.array([0.,
+        # g = [cs_th, sn_th, dth]
+        self.g = np.array([1., 0.,
                            1., 0.,
                            0., 0.])
-        self.gw = np.array([1e1,
+        self.gw = np.array([1e4, 1e4,
                             1e4, 1e4,
                             1e0, 1e0])
 
     def features(self, x):
-        return np.array([x[0],
-                        np.cos(x[1]), np.sin(x[1]),
-                        x[2], x[3]])
+        return np.array([np.cos(x[0]), np.sin(x[0]),
+                         np.cos(x[1]), np.sin(x[1]),
+                         x[2], x[3]])
