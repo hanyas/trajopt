@@ -24,16 +24,16 @@ class iLQR:
         self.env_cost = self.env.unwrapped.cost
         self.env_init = init_state
 
-        # use slew rate penalty or not
-        self.env.unwrapped.slew_rate = slew_rate
-        if action_penalty:
-            self.env.unwrapped.uw = action_penalty
-
         self.ulim = self.env.action_space.high
 
         self.dm_state = self.env.observation_space.shape[0]
         self.dm_act = self.env.action_space.shape[0]
         self.nb_steps = nb_steps
+
+        # use slew rate penalty or not
+        self.env.unwrapped.slew_rate = slew_rate
+        if action_penalty is not None:
+            self.env.unwrapped.uw = action_penalty * np.ones((self.dm_act, ))
 
         # backtracking
         self.alphas = alphas

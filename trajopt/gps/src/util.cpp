@@ -80,10 +80,10 @@ array_tf vec_to_array(vec m) {
 }
 
 
-double kl_divergence(array_tf _p_K, array_tf _p_kff, array_tf _p_sigma_ctl,
-                     array_tf _q_K, array_tf _q_kff, array_tf _q_sigma_ctl,
-                     array_tf _mu_x, array_tf _sigma_x,
-                     int dm_state, int dm_act, int nb_steps) {
+py::tuple kl_divergence(array_tf _p_K, array_tf _p_kff, array_tf _p_sigma_ctl,
+                        array_tf _q_K, array_tf _q_kff, array_tf _q_sigma_ctl,
+                        array_tf _mu_x, array_tf _sigma_x,
+                        int dm_state, int dm_act, int nb_steps) {
 
     cube p_K = array_to_cube(_p_K);
     mat p_kff = array_to_mat(_p_kff);
@@ -96,7 +96,7 @@ double kl_divergence(array_tf _p_K, array_tf _p_kff, array_tf _p_sigma_ctl,
     mat mu_x  = array_to_mat(_mu_x);
     cube sigma_x = array_to_cube(_sigma_x);
 
-    double kl = 0.0;
+    vec kl(nb_steps);
 
     for(int i = 0; i < nb_steps; i++) {
         mat q_lambda_ctl = inv_sympd(q_sigma_ctl.slice(i));
@@ -105,16 +105,19 @@ double kl_divergence(array_tf _p_K, array_tf _p_kff, array_tf _p_sigma_ctl,
         mat diff_crs = (q_K.slice(i) - p_K.slice(i)).t() * q_lambda_ctl * (- q_kff.col(i) + p_kff.col(i));
         mat diff_kff = (- q_kff.col(i) + p_kff.col(i)).t() * q_lambda_ctl * (- q_kff.col(i) + p_kff.col(i));
 
-        kl += as_scalar(0.5 * log( det(q_sigma_ctl.slice(i)) / det(p_sigma_ctl.slice(i)) )
-		                + 0.5 * trace(q_lambda_ctl * p_sigma_ctl.slice(i))
-		                - 0.5 * dm_act
-		                + 0.5 * trace(diff_K * sigma_x.slice(i))
-		                + 0.5 * mu_x.col(i).t() * diff_K * mu_x.col(i)
-		                - mu_x.col(i).t() * diff_crs
-		                + 0.5 * diff_kff);
+        kl(i) = as_scalar(0.5 * log( det(q_sigma_ctl.slice(i)) / det(p_sigma_ctl.slice(i)) )
+		                  + 0.5 * trace(q_lambda_ctl * p_sigma_ctl.slice(i))
+		                  - 0.5 * dm_act
+		                  + 0.5 * trace(diff_K * sigma_x.slice(i))
+		                  + 0.5 * mu_x.col(i).t() * diff_K * mu_x.col(i)
+		                  - mu_x.col(i).t() * diff_crs
+		                  + 0.5 * diff_kff);
     }
 
-    return kl;
+    array_tf _kl = vec_to_array(kl);
+
+    py::tuple output =  py::make_tuple(_kl);
+    return output;
 }
 
 double quad_expectation(array_tf _mu, array_tf _sigma_s,
@@ -133,7 +136,7 @@ double quad_expectation(array_tf _mu, array_tf _sigma_s,
 py::tuple augment_cost(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
                        array_tf _cu, array_tf _Cxu, array_tf _c0,
                        array_tf _K, array_tf _kff, array_tf _sigma_ctl,
-                       double alpha, int dm_state, int dm_act, int nb_steps) {
+                       array_tf _alpha, int dm_state, int dm_act, int nb_steps) {
 
     // inputs
     cube Cxx = array_to_cube(_Cxx);
@@ -147,6 +150,8 @@ py::tuple augment_cost(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     mat kff = array_to_mat(_kff);
     cube sigma_ctl = array_to_cube(_sigma_ctl);
 
+    vec alpha = array_to_vec(_alpha);
+
     // outputs
     cube agCxx(dm_state, dm_state, nb_steps + 1);
     mat agcx(dm_state, nb_steps + 1);
@@ -158,13 +163,13 @@ py::tuple augment_cost(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     for (int i = 0; i < nb_steps; i++) {
         mat lambda_ctl = inv_sympd(sigma_ctl.slice(i));
 
-        agCxx.slice(i) = Cxx.slice(i) - 0.5 * alpha * K.slice(i).t() * lambda_ctl * K.slice(i);
-        agCuu.slice(i) = Cuu.slice(i) - 0.5 * alpha * lambda_ctl;
-        agCxu.slice(i) = Cxu.slice(i) + 0.5 * alpha * K.slice(i).t() * lambda_ctl;
-        agcx.col(i) = cx.col(i) - alpha * K.slice(i).t() * lambda_ctl * kff.col(i);
-        agcu.col(i) = cu.col(i) + alpha * lambda_ctl * kff.col(i);
-        agc0(i) = as_scalar(c0(i) - 0.5 * alpha * log( det(2. * datum::pi * sigma_ctl.slice(i)) )
-                   - 0.5 * alpha * kff.col(i).t() * lambda_ctl * kff.col(i));
+        agCxx.slice(i) = Cxx.slice(i) + 0.5 * alpha(i) * K.slice(i).t() * lambda_ctl * K.slice(i);
+        agCuu.slice(i) = Cuu.slice(i) + 0.5 * alpha(i) * lambda_ctl;
+        agCxu.slice(i) = Cxu.slice(i) - 0.5 * alpha(i) * K.slice(i).t() * lambda_ctl;
+        agcx.col(i) = cx.col(i) + alpha(i) * K.slice(i).t() * lambda_ctl * kff.col(i);
+        agcu.col(i) = cu.col(i) - alpha(i) * lambda_ctl * kff.col(i);
+        agc0(i) = as_scalar(c0(i) + 0.5 * alpha(i) * log( det(2. * datum::pi * sigma_ctl.slice(i)) )
+                            + 0.5 * alpha(i) * kff.col(i).t() * lambda_ctl * kff.col(i));
     }
 
     // last time step
@@ -267,7 +272,7 @@ py::tuple forward_pass(array_tf _mu_x0, array_tf _sigma_x0,
 py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
                         array_tf _cu, array_tf _Cxu, array_tf _c0,
                         array_tf _A, array_tf _B, array_tf _c, array_tf _sigma_dyn,
-                        double alpha, int dm_state, int dm_act, int nb_steps) {
+                        array_tf _alpha, int dm_state, int dm_act, int nb_steps) {
 
     // inputs
     cube Cxx = array_to_cube(_Cxx);
@@ -282,6 +287,8 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     mat c = array_to_mat(_c);
     cube sigma_dyn = array_to_cube(_sigma_dyn);
 
+    vec alpha = array_to_vec(_alpha);
+
     // outputs
     cube Q(dm_state + dm_act, dm_state + dm_act, nb_steps);
     cube Qxx(dm_state, dm_state, nb_steps);
@@ -291,13 +298,10 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     mat qx(dm_state, nb_steps);
     mat qu(dm_act, nb_steps);
     vec q0(nb_steps);
-    vec q0_common(nb_steps);
-    vec q0_softmax(nb_steps);
 
     cube V(dm_state, dm_state, nb_steps + 1);
     mat v(dm_state, nb_steps + 1);
     vec v0(nb_steps + 1);
-    vec v0_softmax(nb_steps + 1);
 
     cube K(dm_act, dm_state, nb_steps);
     mat kff(dm_act, nb_steps);
@@ -310,21 +314,17 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     V.slice(nb_steps) = Cxx.slice(nb_steps);
     v.col(nb_steps) = cx.col(nb_steps);
     v0(nb_steps) = c0(nb_steps);
-    v0_softmax(nb_steps) = c0(nb_steps);
 
 	for(int i = nb_steps - 1; i>= 0; --i)
 	{
-        Qxx.slice(i) = (Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i)) / alpha;
-        Quu.slice(i) = (Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i)) / alpha;
-        Qux.slice(i) = (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t() / alpha;
+        Qxx.slice(i) = - (Cxx.slice(i) + A.slice(i).t() * V.slice(i+1) * A.slice(i)) / alpha(i);
+        Quu.slice(i) = - (Cuu.slice(i) + B.slice(i).t() * V.slice(i+1) * B.slice(i)) / alpha(i);
+        Qux.slice(i) = - (Cxu.slice(i) + A.slice(i).t() * V.slice(i+1) * B.slice(i)).t() / alpha(i);
 
-        qu.col(i) = (cu.col(i) + 2.0 * B.slice(i).t() * V.slice(i+1) * c.col(i) + B.slice(i).t() * v.col(i+1)) / alpha;
-        qx.col(i) = (cx.col(i) + 2.0 * A.slice(i).t() * V.slice(i+1) * c.col(i) + A.slice(i).t() * v.col(i+1)) / alpha;
-        q0_common(i) = as_scalar(c0(i) +  c.col(i).t() * V.slice(i+1) * c.col(i)
-                        + trace(V.slice(i+1) * sigma_dyn.slice(i)) + v.col(i+1).t() * c.col(i));
-
-        q0(i) = (q0_common(i) + v0(i+1)) / alpha;
-        q0_softmax(i) = (q0_common(i) + v0_softmax(i+1)) / alpha;
+        qu.col(i) = - (cu.col(i) + 2.0 * B.slice(i).t() * V.slice(i+1) * c.col(i) + B.slice(i).t() * v.col(i+1)) / alpha(i);
+        qx.col(i) = - (cx.col(i) + 2.0 * A.slice(i).t() * V.slice(i+1) * c.col(i) + A.slice(i).t() * v.col(i+1)) / alpha(i);
+        q0(i) = - as_scalar(c0(i) + v0(i+1) + c.col(i).t() * V.slice(i+1) * c.col(i)
+                            + trace(V.slice(i+1) * sigma_dyn.slice(i)) + v.col(i+1).t() * c.col(i)) / alpha(i);
 
         if ((Quu.slice(i)).is_sympd()) {
             _diverge = i;
@@ -341,13 +341,13 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
         lambda_ctl.slice(i) = - (Quu.slice(i).t() + Quu.slice(i));
         lambda_ctl.slice(i) = 0.5 * (lambda_ctl.slice(i).t() + lambda_ctl.slice(i));
 
-        V.slice(i) = (Qxx.slice(i) + Qux.slice(i).t() * K.slice(i)) * alpha;
+        V.slice(i) = - alpha(i) * (Qxx.slice(i) + Qux.slice(i).t() * K.slice(i));
         V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
 
-        v.col(i) = (qx.col(i) + 2. * Qux.slice(i).t() * kff.col(i)) * alpha;
-        v0(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * dm_act));
-        v0_softmax(i) = alpha * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0_softmax(i)
-                         + 0.5 * (dm_act * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
+        v.col(i) = - alpha(i) * (qx.col(i) + 2. * Qux.slice(i).t() * kff.col(i));
+        v0(i) = - alpha(i) * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * dm_act));
+        v0(i) = - alpha(i) * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i)
+                              + 0.5 * (dm_act * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
 	}
 
     // transform outputs to numpy
@@ -358,19 +358,17 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
     array_tf _qx = mat_to_array(qx);
     array_tf _qu = mat_to_array(qu);
     array_tf _q0 = mat_to_array(q0);
-    array_tf _q0_softmax = mat_to_array(q0_softmax);
 
     array_tf _V = cube_to_array(V);
     array_tf _v = mat_to_array(v);
     array_tf _v0 = vec_to_array(v0);
-    array_tf _v0_softmax = vec_to_array(v0_softmax);
 
     array_tf _K = cube_to_array(K);
     array_tf _kff = mat_to_array(kff);
     array_tf _sigma_ctl = cube_to_array(sigma_ctl);
 
-    py::tuple output =  py::make_tuple(_Qxx, _Qux, _Quu, _qx, _qu, _q0, _q0_softmax,
-                                        _V, _v, _v0, _v0_softmax,
+    py::tuple output =  py::make_tuple(_Qxx, _Qux, _Quu, _qx, _qu, _q0,
+                                        _V, _v, _v0,
                                         _K, _kff, _sigma_ctl, _diverge);
 
     return output;

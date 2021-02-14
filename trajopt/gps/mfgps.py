@@ -5,8 +5,10 @@ from scipy import optimize
 
 from trajopt.gps.objects import Gaussian, QuadraticCost
 from trajopt.gps.objects import LearnedLinearGaussianDynamics, AnalyticalQuadraticCost
+from trajopt.gps.objects import LearnedLinearGaussianDynamicsWithKnownNoise
 from trajopt.gps.objects import QuadraticStateValue, QuadraticStateActionValue
 from trajopt.gps.objects import LinearGaussianControl
+from trajopt.gps.objects import pass_alpha_as_vector
 
 from trajopt.gps.core import kl_divergence, quad_expectation, augment_cost
 from trajopt.gps.core import forward_pass, backward_pass
@@ -17,21 +19,17 @@ class MFGPS:
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
                  kl_bound=0.1, kl_adaptive=False,
-                 activation=None, slew_rate=False,
-                 action_penalty=None, dyn_prior=None):
+                 kl_stepwise=True, activation=None,
+                 slew_rate=False, action_penalty=None,
+                 dyn_prior=None):
 
         self.env = env
 
         # expose necessary functions
         self.env_dyn = self.env.unwrapped.dynamics
-        self.env_noise = self.env.unwrapped.noise
+        self.env_noise = self.env.unwrapped.sigma
         self.env_cost = self.env.unwrapped.cost
         self.env_init = init_state
-
-        # use slew rate penalty or not
-        self.env.unwrapped.slew_rate = slew_rate
-        if action_penalty:
-            self.env.unwrapped.uw = action_penalty
 
         self.ulim = self.env.action_space.high
 
@@ -39,17 +37,26 @@ class MFGPS:
         self.dm_act = self.env.action_space.shape[0]
         self.nb_steps = nb_steps
 
-        # total kl over traj.
-        self.kl_base = kl_bound
-        self.kl_bound = kl_bound
+        # use slew rate penalty or not
+        self.env.unwrapped.slew_rate = slew_rate
+        if action_penalty is not None:
+            self.env.unwrapped.uw = action_penalty * np.ones((self.dm_act, ))
+
+        self.kl_stepwise = kl_stepwise
+        if self.kl_stepwise:
+            self.kl_base = kl_bound * np.ones((self.nb_steps, ))
+            self.kl_bound = kl_bound * np.ones((self.nb_steps, ))
+            self.alpha = 1e8 * np.ones((self.nb_steps, ))
+        else:
+            self.kl_base = kl_bound * np.ones((1, ))
+            self.kl_bound = kl_bound * np.ones((1, ))
+            self.alpha = 1e8 * np.ones((1, ))
 
         # kl mult.
         self.kl_adaptive = kl_adaptive
         self.kl_mult = 1.
         self.kl_mult_min = 0.1
         self.kl_mult_max = 5.0
-
-        self.alpha = np.array([-1e4])
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -61,8 +68,9 @@ class MFGPS:
         self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        self.dyn_prior = dyn_prior
-        self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps, self.dyn_prior)
+        # self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps, dyn_prior)
+        self.dyn = LearnedLinearGaussianDynamicsWithKnownNoise(self.dm_state, self.dm_act, self.nb_steps,
+                                                               self.env_noise, dyn_prior)
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
 
         # activation of cost function in shape of sigmoid
@@ -124,20 +132,22 @@ class MFGPS:
                                                self.dm_state, self.dm_act, self.nb_steps)
         return xdist, udist, xudist
 
+    @pass_alpha_as_vector
     def backward_pass(self, alpha, agcost):
         lgc = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps)
         xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         xuvalue = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
         xuvalue.Qxx, xuvalue.Qux, xuvalue.Quu,\
-        xuvalue.qx, xuvalue.qu, xuvalue.q0, xuvalue.q0_softmax,\
-        xvalue.V, xvalue.v, xvalue.v0, xvalue.v0_softmax,\
+        xuvalue.qx, xuvalue.qu, xuvalue.q0, \
+        xvalue.V, xvalue.v, xvalue.v0, \
         lgc.K, lgc.kff, lgc.sigma, diverge = backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
                                                            agcost.cu, agcost.Cxu, agcost.c0,
                                                            self.dyn.A, self.dyn.B, self.dyn.c, self.dyn.sigma,
                                                            alpha, self.dm_state, self.dm_act, self.nb_steps)
         return lgc, xvalue, xuvalue, diverge
 
+    @pass_alpha_as_vector
     def augment_cost(self, alpha):
         agcost = QuadraticCost(self.dm_state, self.dm_act, self.nb_steps + 1)
         agcost.Cxx, agcost.cx, agcost.Cuu,\
@@ -160,15 +170,16 @@ class MFGPS:
         # dual expectation
         dual = quad_expectation(xdist.mu[..., 0], xdist.sigma[..., 0],
                                 xvalue.V[..., 0], xvalue.v[..., 0],
-                                xvalue.v0_softmax[..., 0])
-        dual += alpha * self.kl_bound
+                                xvalue.v0[..., 0])
 
-        # gradient of primal
-        grad = self.kl_bound - self.kldiv(lgc, xdist)
+        if self.kl_stepwise:
+            dual = np.array([dual]) - np.sum(alpha * self.kl_bound)
+            grad = self.kldiv(lgc, xdist) - self.kl_bound
+        else:
+            dual = np.array([dual]) - alpha * self.kl_bound
+            grad = np.sum(self.kldiv(lgc, xdist)) - self.kl_bound
 
-        # It is weird that we have to pass the negative gradient
-        # Think of primal/dual gradient and minimization of dual
-        return -1. * np.array([dual]), -1. * np.array([grad])
+        return -1. * dual, -1. * grad
 
     def kldiv(self, lgc, xdist):
         return kl_divergence(lgc.K, lgc.kff, lgc.sigma,
@@ -219,11 +230,17 @@ class MFGPS:
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
-            # use scipy optimizer
-            res = sc.optimize.minimize(self.dual, np.array([-1e4]),
+            if self.kl_stepwise:
+                init = 1e8 * np.ones((self.nb_steps,))
+                bounds = ((1e-16, 1e16), ) * self.nb_steps
+            else:
+                init = 1e8 * np.ones((1,))
+                bounds = ((1e-16, 1e16), ) * 1
+
+            res = sc.optimize.minimize(self.dual, init,
                                        method='SLSQP',
                                        jac=True,
-                                       bounds=((-1e16, -1e-16), ),
+                                       bounds=bounds,
                                        options={'disp': False, 'maxiter': 10000,
                                                 'ftol': 1e-6})
             self.alpha = res.x
@@ -232,26 +249,16 @@ class MFGPS:
             agcost = self.augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.backward_pass(self.alpha, agcost)
 
-            # current return
-            _return = np.mean(np.sum(self.data['c'], axis=0))
-
             # get expected improvment:
             xdist, udist, xudist = self.forward_pass(lgc)
             _expected_return = self.cost.evaluate(xdist.mu, udist.mu)
 
-            # expected vs actual improvement
-            _expected_imp = self.last_return - _expected_return
-            _actual_imp = self.last_return - _return
-
-            # update kl multiplier
-            if self.kl_adaptive:
-                _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
-                _mult = np.maximum(0.1, np.minimum(5.0, _mult))
-                self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
-
             # check kl constraint
             kl = self.kldiv(lgc, xdist)
-            if (kl - self.kl_bound) < 0.25 * self.kl_bound:
+            if not self.kl_stepwise:
+                kl = np.sum(kl)
+
+            if np.all((kl - self.kl_bound) < 0.25 * self.kl_bound):
                 # update controller
                 self.ctl = lgc
 
@@ -260,6 +267,19 @@ class MFGPS:
 
                 # run current controller
                 self.data = self.sample(nb_episodes)
+
+                # current return
+                _return = np.mean(np.sum(self.data['c'], axis=0))
+
+                # expected vs actual improvement
+                _expected_imp = self.last_return - _expected_return
+                _actual_imp = self.last_return - _return
+
+                # update kl multiplier
+                if self.kl_adaptive:
+                    _mult = _expected_imp / (2. * np.maximum(1e-4, _expected_imp - _actual_imp))
+                    _mult = np.maximum(0.1, np.minimum(5.0, _mult))
+                    self.kl_mult = np.maximum(np.minimum(_mult * self.kl_mult, self.kl_mult_max), self.kl_mult_min)
 
                 # fit time-variant linear dynamics
                 self.dyn.learn(self.data)
@@ -279,14 +299,17 @@ class MFGPS:
                 # update kl bound
                 if self.kl_adaptive:
                     self.kl_bound = self.kl_base * self.kl_mult
+
+                if verbose:
+                    if iter == 0:
+                        print("%6s %8s %8s" % ("", "kl", ""))
+                        print("%6s %6s %6s %12s" % ("iter", "req.", "act.", "return"))
+                    print("%6i %6.2f %6.2f %12.2f" % (iter, np.sum(self.kl_bound), np.sum(kl), _return))
             else:
                 print("Something is wrong, KL not satisfied")
-                self.alpha = np.array([-1e8])
-
-            if verbose:
-                if iter == 0:
-                    print("%6s %8s %8s" % ("", "kl", ""))
-                    print("%6s %6s %6s %12s" % ("iter", "req.", "act.", "return"))
-                print("%6i %6.2f %6.2f %12.2f" % (iter, self.kl_bound, kl, _return))
+                if self.kl_stepwise:
+                    self.alpha = 1e8 * np.ones((self.nb_steps,))
+                else:
+                    self.alpha = 1e8 * np.ones((1,))
 
         return _trace

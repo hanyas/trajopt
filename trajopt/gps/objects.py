@@ -3,6 +3,9 @@ from autograd import jacobian, hessian
 
 from mimo.distributions import MatrixNormalWishart
 from mimo.distributions import LinearGaussianWithMatrixNormalWishart
+from mimo.distributions import MatrixNormalWithKnownPrecision
+from mimo.distributions import LinearGaussianWithMatrixNormal
+from mimo.distributions import LinearGaussianWithKnownPrecision
 
 
 class Gaussian:
@@ -35,7 +38,6 @@ class QuadraticStateValue:
         self.V = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
         self.v = np.zeros((self.dm_state, self.nb_steps, ))
         self.v0 = np.zeros((self.nb_steps, ))
-        self.v0_softmax = np.zeros((self.nb_steps, ))
 
 
 class QuadraticStateActionValue:
@@ -52,8 +54,6 @@ class QuadraticStateActionValue:
         self.qu = np.zeros((self.dm_act, self.nb_steps, ))
 
         self.q0 = np.zeros((self.nb_steps, ))
-        self.q0_common = np.zeros((self.nb_steps, ))
-        self.q0_softmax = np.zeros((self.nb_steps, ))
 
 
 class QuadraticCost:
@@ -116,16 +116,16 @@ class AnalyticalQuadraticCost(QuadraticCost):
             _in = tuple([x[..., t], _u[..., t], _u[..., t - 1], a[t]])
             self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
             self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
-            self.Cxu[..., t] = self.dcdxu(*_in)
+            self.Cxu[..., t] = 0.5 * self.dcdxu(*_in)
 
-            self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - self.dcdxu(*_in) @ _u[..., t]
-            self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - x[..., t].T @ self.dcdxu(*_in)
+            self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - 2. * self.dcdxu(*_in) @ _u[..., t]
+            self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - 2. * x[..., t].T @ self.dcdxu(*_in)
 
             # residual of taylor expansion
             self.c0[..., t] = self.f(*_in)\
                               - x[..., t].T @ self.Cxx[..., t] @ x[..., t]\
                               - _u[..., t].T @ self.Cuu[..., t] @ _u[..., t]\
-                              - x[..., t].T @ self.Cxu[..., t] @ _u[..., t]\
+                              - 2. * x[..., t].T @ self.Cxu[..., t] @ _u[..., t]\
                               - self.cx[..., t].T @ x[..., t]\
                               - self.cu[..., t].T @ _u[..., t]
 
@@ -212,7 +212,6 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         return xdist, udist, lgd
 
 
-# This part is still under construction
 class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
     def __init__(self, dm_state, dm_act, nb_steps, prior):
         super(LearnedLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
@@ -223,22 +222,43 @@ class LearnedLinearGaussianDynamics(LinearGaussianDynamics):
                          nu=self.dm_state + prior['nu'])
         self.prior = MatrixNormalWishart(**hypparams)
 
-    def learn(self, data, stepwise=True):
-        if stepwise:
+    def learn(self, data):
+        for t in range(self.nb_steps):
+            input = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T))
+            target = data['xn'][:, t, :].T
 
-            for t in range(self.nb_steps):
-                input = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T))
-                target = data['xn'][:, t, :].T
+            model = LinearGaussianWithMatrixNormalWishart(self.prior, affine=True)
+            model = model.max_aposteriori(y=target, x=input)
 
-                model = LinearGaussianWithMatrixNormalWishart(self.prior, affine=True)
-                model = model.max_aposteriori(y=target, x=input)
+            self.A[..., t] = model.likelihood.A[:, :self.dm_state]
+            self.B[..., t] = model.likelihood.A[:, self.dm_state:self.dm_state + self.dm_act]
+            self.c[..., t] = model.likelihood.A[:, -1]
+            self.sigma[..., t] = model.likelihood.sigma
 
-                self.A[..., t] = model.likelihood.A[:, :self.dm_state]
-                self.B[..., t] = model.likelihood.A[:, self.dm_state:self.dm_state + self.dm_act]
-                self.c[..., t] = model.likelihood.A[:, -1]
-                self.sigma[..., t] = model.likelihood.sigma
-        else:
-            raise NotImplementedError
+
+class LearnedLinearGaussianDynamicsWithKnownNoise(LinearGaussianDynamics):
+    def __init__(self, dm_state, dm_act, nb_steps, noise, prior):
+        super(LearnedLinearGaussianDynamicsWithKnownNoise, self).__init__(dm_state, dm_act, nb_steps)
+
+        hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
+                         K=prior['K'] * np.eye(self.dm_state + self.dm_act + 1),
+                         V=np.linalg.inv(noise))
+        self.prior = MatrixNormalWithKnownPrecision(**hypparams)
+        self.noise = noise  # assumed stationary over all time steps
+
+    def learn(self, data):
+        for t in range(self.nb_steps):
+            input = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T))
+            target = data['xn'][:, t, :].T
+
+            likelihood = LinearGaussianWithKnownPrecision(lmbda=np.linalg.inv(self.noise), affine=True)
+            model = LinearGaussianWithMatrixNormal(self.prior, likelihood=likelihood, affine=True)
+            model = model.max_aposteriori(y=target, x=input)
+
+            self.A[..., t] = model.likelihood.A[:, :self.dm_state]
+            self.B[..., t] = model.likelihood.A[:, self.dm_state:self.dm_state + self.dm_act]
+            self.c[..., t] = model.likelihood.A[:, -1]
+            self.sigma[..., t] = model.likelihood.sigma
 
 
 class LinearGaussianControl:
@@ -281,3 +301,14 @@ class LinearGaussianControl:
         u_sigma = 0.5 * (u_sigma + u_sigma.T)
 
         return u_mu, u_sigma
+
+
+def pass_alpha_as_vector(f):
+    def wrapper(self, alpha, *args):
+        assert alpha is not None
+
+        if alpha.shape[0] == 1:
+            alpha = alpha * np.ones((self.nb_steps, ))
+
+        return f(self, alpha, *args)
+    return wrapper
