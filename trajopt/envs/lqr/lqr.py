@@ -86,11 +86,11 @@ class LQR(gym.Env):
         return self.sigma
 
     def cost(self, x, u, u_last, a):
+        c = u.T @ np.diag(self.uw) @ u
         if a:
-            return self.dt * ((x - self.g).T @ np.diag(self.gw) @ (x - self.g)
-                              + u.T @ np.diag(self.uw) @ u)
-        else:
-            return self.dt * u.T @ np.diag(self.uw) @ u
+            c += a * (x - self.g).T @ np.diag(self.gw) @ (x - self.g)
+
+        return self.dt * c
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
