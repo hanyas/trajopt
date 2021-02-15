@@ -9,7 +9,7 @@ from trajopt.rgps.objects import Gaussian, QuadraticCost
 from trajopt.rgps.objects import AnalyticalQuadraticCost
 from trajopt.rgps.objects import QuadraticStateValue, QuadraticStateActionValue
 from trajopt.rgps.objects import LinearGaussianControl
-from trajopt.rgps.objects import LearnedProbabilisticLinearDynamics
+from trajopt.rgps.objects import LearnedProbabilisticLinearDynamicsWithKnownNoise
 from trajopt.rgps.objects import MatrixNormalParameters
 
 from trajopt.rgps.core import kl_divergence, quad_expectation
@@ -37,11 +37,6 @@ class MFRGPS:
         self.env_cost = self.env.unwrapped.cost
         self.env_init = init_state
 
-        # use slew rate penalty or not
-        self.env.unwrapped.slew_rate = slew_rate
-        if action_penalty:
-            self.env.unwrapped.uw = action_penalty
-
         self.ulim = self.env.action_space.high
 
         self.dm_state = self.env.observation_space.shape[0]
@@ -50,11 +45,16 @@ class MFRGPS:
 
         self.nb_steps = nb_steps
 
+        # use slew rate penalty or not
+        self.env.unwrapped.slew_rate = slew_rate
+        if action_penalty is not None:
+            self.env.unwrapped.uw = action_penalty * np.ones((self.dm_act, ))
+
         self.policy_kl_bound = policy_kl_bound
         self.param_kl_bound = param_kl_bound
 
         self.alpha = np.array([1e4])
-        self.beta = np.array([1e4])
+        self.beta = np.array([1e2])
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -67,8 +67,8 @@ class MFRGPS:
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
         self.pfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
 
-        self.nominal = LearnedProbabilisticLinearDynamics(self.dm_state, self.dm_act, self.nb_steps,
-                                                          self.env_noise, prior)
+        self.nominal = LearnedProbabilisticLinearDynamicsWithKnownNoise(self.dm_state, self.dm_act, self.nb_steps,
+                                                                        self.env_noise, prior)
         self.param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
 
         # We assume process noise over dynamics is known
@@ -208,29 +208,6 @@ class MFRGPS:
                                                                  self.nb_steps)
         return param, xvalue, diverge
 
-    def parameter_dual_regularization(self, pdist, qdist, kappa):
-        regcost = QuadraticCost(self.dm_state, self.dm_state, self.nb_steps + 1)
-
-        regcost.Cxx, regcost.cx, regcost.c0 = parameter_dual_regularization(pdist.mu, pdist.sigma,
-                                                                            qdist.mu, qdist.sigma,
-                                                                            kappa, self.dm_state, self.nb_steps)
-        return regcost
-
-    def regularized_parameter_backward_pass(self, beta, agcost, xudist, regcost):
-        param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
-        xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
-
-        xvalue.V, xvalue.v, xvalue.v0,\
-        param.mu, param.sigma, diverge = regularized_parameter_backward_pass(xudist.mu, xudist.sigma,
-                                                                             self.cost.cx, self.cost.Cxx, self.cost.Cuu,
-                                                                             self.cost.cu, self.cost.Cxu, self.cost.c0,
-                                                                             agcost.Cxx, agcost.cx, agcost.c0,
-                                                                             self.ctl.K, self.ctl.kff, self.ctl.sigma, self.noise,
-                                                                             regcost.Cxx, regcost.cx, regcost.c0,
-                                                                             beta, self.dm_state, self.dm_act, self.dm_param,
-                                                                             self.nb_steps)
-        return param, xvalue, diverge
-
     def parameter_dual(self, beta):
 
         agcost = self.parameter_augment_cost(beta)
@@ -249,15 +226,15 @@ class MFRGPS:
         p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
 
         # conergence of inner loop
-        conv_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
-        while conv_kl > 1e-3:
+        xdist_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
+        while xdist_kl > 1e-3:
             param, xvalue, diverge = self.parameter_backward_pass(beta, agcost, q_xdist)
             if diverge:
                 return np.nan, np.nan
             p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
 
             # check convergence of loop
-            conv_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
+            xdist_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
 
             # interpolate between distributions
             for t in range(1, self.nb_steps + 1):
@@ -276,7 +253,74 @@ class MFRGPS:
 
         return -1. * np.array([dual]), -1. * np.array([grad])
 
-    def parameter_dual_optimization(self, beta, iters=10):
+    def parameter_dual_regularization(self, pdist, qdist, kappa):
+        regcost = QuadraticCost(self.dm_state, self.dm_state, self.nb_steps + 1)
+
+        regcost.Cxx, regcost.cx, regcost.c0 = parameter_dual_regularization(pdist.mu, pdist.sigma,
+                                                                            qdist.mu, qdist.sigma,
+                                                                            kappa, self.dm_state, self.nb_steps)
+        return regcost
+
+    def regularized_parameter_backward_pass(self, beta, agcost, xdist, regcost):
+        param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
+        xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
+
+        xvalue.V, xvalue.v, xvalue.v0,\
+        param.mu, param.sigma, diverge = regularized_parameter_backward_pass(xdist.mu, xdist.sigma,
+                                                                             self.ctl.K, self.ctl.kff, self.ctl.sigma, self.noise,
+                                                                             self.cost.cx, self.cost.Cxx, self.cost.Cuu,
+                                                                             self.cost.cu, self.cost.Cxu, self.cost.c0,
+                                                                             agcost.Cxx, agcost.cx, agcost.c0,
+                                                                             regcost.Cxx, regcost.cx, regcost.c0,
+                                                                             beta, self.dm_state, self.dm_act, self.dm_param,
+                                                                             self.nb_steps)
+        return param, xvalue, diverge
+
+    def regularized_parameter_dual(self, beta, kappa):
+        agcost = self.parameter_augment_cost(beta)
+
+        q_xdist = deepcopy(self.xdist)
+        # p_xdist = deepcopy(self.xdist)
+
+        param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
+        p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
+
+        regcost = self.parameter_dual_regularization(p_xdist, q_xdist, kappa)
+        param, xvalue, diverge = self.regularized_parameter_backward_pass(beta, agcost, p_xdist, regcost)
+        if diverge:
+            return np.nan, np.nan
+
+        # conergence of inner loop
+        xdist_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
+        while xdist_kl > 1e-3:
+            regcost = self.parameter_dual_regularization(p_xdist, q_xdist, kappa)
+            param, xvalue, diverge = self.regularized_parameter_backward_pass(beta, agcost, p_xdist, regcost)
+            if diverge:
+                return np.nan, np.nan
+
+            q_xdist = deepcopy(p_xdist)
+            p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
+
+            # check convergence of loop
+            xdist_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
+
+        # dual expectation
+        dual = quad_expectation(q_xdist.mu[..., 0], q_xdist.sigma[..., 0],
+                                xvalue.V[..., 0], xvalue.v[..., 0],
+                                xvalue.v0[..., 0])
+
+        dual += beta * (np.sum(self.parameter_kldiv(param)) - self.param_kl_bound)
+        dual -= kappa * xdist_kl
+
+        # dual gradient
+        grad = np.sum(self.parameter_kldiv(param)) - self.param_kl_bound
+
+        return -1. * np.array([dual]), -1. * np.array([grad])
+
+    def parameter_dual_optimization(self, beta, iters=10, regularized=False, kappa=None):
+        if regularized:
+            assert kappa is not None
+
         min_beta, max_beta = 1e-4, 1e4
 
         # adapted from:
@@ -284,20 +328,23 @@ class MFRGPS:
 
         dual, grad = np.nan, np.nan
         for i in range(iters):
-            dual, grad = self.parameter_dual(beta)
+            if regularized:
+                dual, grad = self.regularized_parameter_dual(beta, kappa)
+            else:
+                dual, grad = self.parameter_dual(beta)
 
             if not np.isnan(dual) and not np.isnan(grad):
-                if abs(grad) < 0.25 * self.param_kl_bound:
+                if abs(grad) < 0.1 * self.param_kl_bound:
                     return beta, dual, grad
                 else:
                     if grad > 0:  # beta too large
                         max_beta = beta
-                        geom = np.sqrt(min_beta * max_beta)  # geometric mean
+                        geom = np.sqrt(min_beta * max_beta)
                         beta = max(geom, 0.1 * max_beta)
                     else:  # beta too small
                         min_beta = beta
                         geom = np.sqrt(min_beta * max_beta)
-                        beta = min(geom, 10.0 * min_beta)
+                        beta = min(geom, 5.0 * min_beta)
             else:
                 min_beta = beta
                 geom = np.sqrt(min_beta * max_beta)
@@ -376,7 +423,7 @@ class MFRGPS:
         self.data = self.sample(nb_episodes)
 
         # leanr posterior over dynamics
-        self.nominal.learn(self.data, self.noise)
+        self.nominal.learn(self.data)
 
         # current state distribution
         self.xdist, self.udist, self.xudist = self.cubature_forward_pass(self.ctl, self.nominal)
@@ -389,7 +436,8 @@ class MFRGPS:
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
-            self.beta, _, _ = self.parameter_dual_optimization(np.array([1e2]), iters=200)
+            # worst-case parameter optimization
+            self.beta, _, _ = self.parameter_dual_optimization(np.array([1e4]), iters=200)
 
             agcost = self.parameter_augment_cost(self.beta)
 
@@ -405,13 +453,13 @@ class MFRGPS:
             p_xdist, _, _ = self.cubature_forward_pass(self.ctl, self.param)
 
             # conergence of inner loop
-            conv_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
-            while conv_kl > 1e-3:
+            xdist_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
+            while xdist_kl > 1e-3:
                 self.param, _, _ = self.parameter_backward_pass(self.beta, agcost, q_xdist)
                 p_xdist, _, _ = self.cubature_forward_pass(self.ctl, self.param)
 
                 # check convergence of loop
-                conv_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
+                xdist_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
 
                 # interpolate between distributions
                 for t in range(1, self.nb_steps + 1):
@@ -440,19 +488,12 @@ class MFRGPS:
             policy_agcost = self.policy_augment_cost(self.alpha)
             lgc, xvalue, xuvalue, diverge = self.policy_backward_pass(self.alpha, policy_agcost)
 
-            # current return
-            _actual_return = np.mean(np.sum(self.data['c'], axis=0))
-
             # get expected improvment:
             worst_xdist, worst_udist, worst_xudist = self.cubature_forward_pass(lgc, self.param)
             nominal_xdist, nominal_udist, nominal_xudist = self.cubature_forward_pass(lgc, self.nominal)
 
             _expected_worst_return = self.cost.evaluate(worst_xdist.mu, worst_udist.mu)
             _expected_nominal_return = self.cost.evaluate(nominal_xdist.mu, nominal_udist.mu)
-
-            # expected vs actual improvement
-            _expected_worst_imp = self.last_return - _expected_worst_return
-            _actual_imp = self.last_return - _actual_return
 
             # check kl constraint
             policy_kl = self.policy_kldiv(lgc, worst_xdist)
@@ -466,8 +507,15 @@ class MFRGPS:
                 # run current controller
                 self.data = self.sample(nb_episodes)
 
+                # current return
+                _actual_return = np.mean(np.sum(self.data['c'], axis=0))
+
+                # expected vs actual improvement
+                _actual_imp = self.last_return - _actual_return
+                _expected_worst_imp = self.last_return - _expected_worst_return
+
                 # leanr posterior over dynamics
-                self.nominal.learn(self.data, self.noise)
+                self.nominal.learn(self.data)
 
                 # current state distribution
                 self.xdist, self.udist, self.xudist = self.cubature_forward_pass(self.ctl, self.param)
@@ -480,15 +528,16 @@ class MFRGPS:
 
                 # update last return to current
                 self.last_return = _actual_return
+
+                if verbose:
+                    if iter == 0:
+                        print("%9s %8s %4s %8s %8s" % ("", "param_kl", "", "policy_kl", ""))
+                        print("%6s %6s %6s %6s %6s %12s" % ("iter", "req.", "act.", "req.", "act.", "return"))
+                    print("%6i %6.2f %6.2f %6.2f %6.2f %12.2f" % (iter, self.param_kl_bound, param_kl,
+                                                                  self.policy_kl_bound, policy_kl, _actual_return))
             else:
                 print("Something is wrong, KL not satisfied")
-                self.alpha = np.array([-1e4])
-
-            if verbose:
-                if iter == 0:
-                    print("%6s %8s %8s %8s" % ("", "param_kl", "policy_kl", ""))
-                    print("%6s %6s %6s %6s %12s" % ("iter", "act.", "req.", "act.", "return"))
-                print("%6i %6.2f %6.2f %6.2f %12.2f" % (iter, param_kl, self.policy_kl_bound, policy_kl, _actual_return))
+                self.alpha = np.array([1e4])
 
         return _trace
 
