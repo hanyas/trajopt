@@ -145,21 +145,22 @@ class AnalyticalQuadraticCost(QuadraticCost):
                               - self.cu[..., t].T @ _u[..., t]
 
 
-class LearnedProbabilisticLinearDynamics(MatrixNormalParameters):
+class LearnedProbabilisticLinearDynamicsWithKnownNoise(MatrixNormalParameters):
     def __init__(self, dm_state, dm_act, nb_steps, noise, prior):
-        super(LearnedProbabilisticLinearDynamics, self).__init__(dm_state, dm_act, nb_steps)
+        super(LearnedProbabilisticLinearDynamicsWithKnownNoise, self).__init__(dm_state, dm_act, nb_steps)
 
         hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
                          K=prior['K'] * np.eye(self.dm_state + self.dm_act + 1),
                          V=np.linalg.inv(noise))
         self.prior = MatrixNormalWithKnownPrecision(**hypparams)
+        self.noise = noise  # assumed stationary over all time steps
 
-    def learn(self, data, noise):
+    def learn(self, data):
         for t in range(self.nb_steps):
             input = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T))
             target = data['xn'][:, t, :].T
 
-            likelihood = LinearGaussianWithKnownPrecision(lmbda=np.linalg.inv(noise[..., t]), affine=True)
+            likelihood = LinearGaussianWithKnownPrecision(lmbda=np.linalg.inv(self.noise), affine=True)
             model = LinearGaussianWithMatrixNormal(self.prior, likelihood=likelihood, affine=True)
             model = model.meanfield_update(y=target, x=input)
 
