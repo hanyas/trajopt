@@ -345,7 +345,6 @@ py::tuple backward_pass(array_tf _Cxx, array_tf _cx, array_tf _Cuu,
         V.slice(i) = 0.5 * (V.slice(i) + V.slice(i).t());
 
         v.col(i) = - alpha(i) * (qx.col(i) + 2. * Qux.slice(i).t() * kff.col(i));
-        v0(i) = - alpha(i) * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i) - (0.5 * dm_act));
         v0(i) = - alpha(i) * (as_scalar(0.5 * qu.col(i).t() * kff.col(i)) + q0(i)
                               + 0.5 * (dm_act * log (2. * datum::pi) - log(det(- 2. * Quu.slice(i)))));
 	}

@@ -19,7 +19,7 @@ class MBGPS:
                  init_state, init_action_sigma=1.,
                  kl_bound=0.1, kl_adaptive=False,
                  kl_stepwise=False, activation=None,
-                 slew_rate=False, action_penalty=False):
+                 slew_rate=False, action_penalty=None):
 
         self.env = env
 
@@ -208,10 +208,10 @@ class MBGPS:
 
         for iter in range(nb_iter):
             if self.kl_stepwise:
-                init = 1e8 * np.ones((self.nb_steps,))
+                init = 1e4 * np.ones((self.nb_steps,))
                 bounds = ((1e-16, 1e16), ) * self.nb_steps
             else:
-                init = 1e8 * np.ones((1,))
+                init = 1e4 * np.ones((1,))
                 bounds = ((1e-16, 1e16), ) * 1
 
             res = sc.optimize.minimize(self.dual, init,
