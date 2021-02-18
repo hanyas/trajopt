@@ -48,19 +48,21 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.dcdx = jacobian(self.f, 0)
         self.dcdu = jacobian(self.f, 1)
 
-    def evalf(self, x, u):
-        return self.f(x, u)
+    def evalf(self, x, u, u_last, a):
+        return self.f(x, u, u_last, a)
 
-    def taylor_expansion(self, x, u):
+    def taylor_expansion(self, x, u, a):
         # padd last time step of action traj.
         _u = np.hstack((u, np.zeros((self.dm_act, 1))))
+
         for t in range(self.nb_steps):
-            _in = tuple([x[..., t], _u[..., t]])
-            self.Cxx[..., t] = self.dcdxx(*_in)
-            self.Cuu[..., t] = self.dcduu(*_in)
-            self.Cxu[..., t] = self.dcdxu(*_in)
-            self.cx[..., t] = self.dcdx(*_in)
-            self.cu[..., t] = self.dcdu(*_in)
+            _in = tuple([x[..., t], _u[..., t], _u[..., t - 1], a[t]])
+            self.Cxx[..., t] = 0.5 * self.dcdxx(*_in)
+            self.Cuu[..., t] = 0.5 * self.dcduu(*_in)
+            self.Cxu[..., t] = 0.5 * self.dcdxu(*_in)
+
+            self.cx[..., t] = self.dcdx(*_in) - self.dcdxx(*_in) @ x[..., t] - 2. * self.dcdxu(*_in) @ _u[..., t]
+            self.cu[..., t] = self.dcdu(*_in) - self.dcduu(*_in) @ _u[..., t] - 2. * x[..., t].T @ self.dcdxu(*_in)
 
 
 class LinearDynamics:
