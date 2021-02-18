@@ -43,6 +43,8 @@ class DoubleCartpole(gym.Env):
                             0., 0., 0.])
         self.sigma0 = 1e-4 * np.eye(self.dm_state)
 
+        self.periodic = False
+
         self.state = None
         self.np_random = None
 
@@ -174,11 +176,10 @@ class DoubleCartpole(gym.Env):
             c += u.T @ np.diag(self.uw) @ u
 
         if a:
-            y = x
-            # y = np.hstack((x[0],
-            #                wrap_angle(x[1]),
-            #                wrap_angle(x[2]),
-            #                x[3], x[4], x[5]))
+            y = np.hstack((x[0],
+                           wrap_angle(x[1]),
+                           wrap_angle(x[2]),
+                           x[3], x[4], x[5])) if self.periodic else x
             J, j = self.features_jacobian(getval(y))
             z = J(getval(y)) @ y + j
             c += a * (z - self.g).T @ np.diag(self.gw) @ (z - self.g)

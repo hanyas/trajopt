@@ -40,6 +40,8 @@ class Pendulum(gym.Env):
         self.x0 = np.array([np.pi, 0.])
         self.sigma0 = 1e-4 * np.eye(self.dm_state)
 
+        self.periodic = False
+
         self.state = None
         self.np_random = None
 
@@ -115,8 +117,7 @@ class Pendulum(gym.Env):
             c += u.T @ np.diag(self.uw) @ u
 
         if a:
-            y = x
-            # y = np.hstack((wrap_angle(x[0]), x[1]))
+            y = np.hstack((wrap_angle(x[0]), x[1])) if self.periodic else x
             J, j = self.features_jacobian(getval(y))
             z = J(getval(y)) @ y + j
             c += a * (z - self.g).T @ np.diag(self.gw) @ (z - self.g)
