@@ -23,7 +23,7 @@ prior = {'K': 1e-6}
 solver = MFGPS(env, nb_steps=100,
                init_state=env.init(),
                init_action_sigma=5.,
-               kl_bound=1e-1,
+               kl_bound=1e1,
                slew_rate=False,
                action_penalty=1,
                dyn_prior=prior,

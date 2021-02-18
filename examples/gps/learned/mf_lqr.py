@@ -21,7 +21,7 @@ prior = {'K': 1e-6, 'psi': 1e-6, 'nu': 0.1}
 alg = MFGPS(env, nb_steps=60,
             init_state=env.init(),
             init_action_sigma=100.,
-            kl_bound=1e-1,
+            kl_bound=1.,
             dyn_prior=prior)
 
 # run gps

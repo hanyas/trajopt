@@ -3,6 +3,8 @@ import autograd.numpy as np
 import gym
 from trajopt.gps import MBGPS
 
+import matplotlib.pyplot as plt
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -16,7 +18,7 @@ dm_act = env.action_space.shape[0]
 
 horizon, nb_steps = 25, 60
 
-env_sigma = env.unwrapped._sigma
+env_sigma = env.unwrapped.sigma
 
 state = np.zeros((dm_state, nb_steps + 1))
 action = np.zeros((dm_act, nb_steps))
@@ -33,8 +35,6 @@ for t in range(nb_steps):
 
     print('Time Step:', t, 'Cost:', trace[-1])
 
-
-import matplotlib.pyplot as plt
 
 plt.figure()
 

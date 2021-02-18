@@ -3,6 +3,8 @@ import autograd.numpy as np
 import gym
 from trajopt.gps import MBGPS
 
+import matplotlib.pyplot as plt
+
 from joblib import Parallel, delayed
 
 import multiprocessing
@@ -16,12 +18,14 @@ def create_job(kwargs):
     # cartpole env
     env = gym.make('Cartpole-TO-v0')
     env._max_episode_steps = 10000
-    env.unwrapped.dt = 0.02
+    env.unwrapped.dt = 0.05
+    env.unwrapped.umax = np.array([5.])
+    env.unwrapped.periodic = True
 
     dm_state = env.observation_space.shape[0]
     dm_act = env.action_space.shape[0]
 
-    horizon, nb_steps = 50, 250
+    horizon, nb_steps = 20, 100
 
     env_sigma = env.unwrapped.sigma
 
@@ -32,7 +36,7 @@ def create_job(kwargs):
     for t in range(nb_steps):
         solver = MBGPS(env, init_state=tuple([state[:, t], env_sigma]),
                        init_action_sigma=1., nb_steps=horizon,
-                       kl_bound=2., action_penalty=np.array([1e-5]))
+                       kl_bound=2., action_penalty=1e-5)
         trace = solver.run(nb_iter=10, verbose=False)
 
         _act = solver.ctl.sample(state[:, t], 0, stoch=False)
@@ -54,17 +58,15 @@ def parallel_gps(nb_jobs=50):
 
 obs, act = parallel_gps(nb_jobs=12)
 
-# import matplotlib.pyplot as plt
-#
-# fig, ax = plt.subplots(nrows=5, ncols=1, figsize=(12, 4))
-# for _obs, _act in zip(obs, act):
-#     ax[0].plot(_obs[:, 0])
-#     ax[1].plot(_obs[:, 1])
-#     ax[2].plot(_obs[:, 2])
-#     ax[3].plot(_obs[:, 3])
-#     ax[4].plot(_act)
-# plt.show()
+fig, ax = plt.subplots(nrows=5, ncols=1, figsize=(12, 4))
+for _obs, _act in zip(obs, act):
+    ax[0].plot(_obs[:, 0])
+    ax[1].plot(_obs[:, 1])
+    ax[2].plot(_obs[:, 2])
+    ax[3].plot(_obs[:, 3])
+    ax[4].plot(_act)
+plt.show()
 
-import pickle
-data = {'obs': obs, 'act': act}
-pickle.dump(data, open("gps_cartpole_cart.pkl", "wb"))
+# import pickle
+# data = {'obs': obs, 'act': act}
+# pickle.dump(data, open("gps_cartpole_cart.pkl", "wb"))

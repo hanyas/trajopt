@@ -20,7 +20,7 @@ env.seed(1337)
 solver = MBGPS(env, nb_steps=100,
                init_state=env.init(),
                init_action_sigma=10.0,
-               kl_bound=1e-1,
+               kl_bound=1e1,
                slew_rate=False,
                action_penalty=1,
                activation={'mult': 1., 'shift': 80})

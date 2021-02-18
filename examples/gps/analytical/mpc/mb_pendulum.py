@@ -10,6 +10,8 @@ warnings.filterwarnings("ignore")
 env = gym.make('Pendulum-TO-v0')
 env._max_episode_steps = 10000
 env.unwrapped.dt = 0.05
+env.unwrapped.umax = np.array([2.5])
+env.unwrapped.periodic = True
 
 dm_state = env.observation_space.shape[0]
 dm_act = env.action_space.shape[0]
@@ -25,7 +27,7 @@ state[:, 0] = env.reset()
 for t in range(nb_steps):
     solver = MBGPS(env, init_state=tuple([state[:, t], env_sigma]),
                    init_action_sigma=25., nb_steps=horizon,
-                   kl_bound=2., action_penalty=np.array([1e-5]))
+                   kl_bound=1., action_penalty=1e-5)
     trace = solver.run(nb_iter=10, verbose=False)
 
     _act = solver.ctl.sample(state[:, t], 0, stoch=False)
