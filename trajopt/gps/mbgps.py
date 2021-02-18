@@ -18,7 +18,7 @@ class MBGPS:
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
                  kl_bound=0.1, kl_adaptive=False,
-                 kl_stepwise=True, activation=None,
+                 kl_stepwise=False, activation=None,
                  slew_rate=False, action_penalty=False):
 
         self.env = env
@@ -193,7 +193,7 @@ class MBGPS:
     def run(self, nb_iter=10, verbose=False):
         _trace = []
 
-        # get mena traj. and linear system dynamics
+        # get mean traj. and linear system dynamics
         self.xdist, self.udist, lgd, _cost = self.simulate(self.ctl)
 
         # update linearization of dynamics
@@ -235,7 +235,7 @@ class MBGPS:
             if not self.kl_stepwise:
                 kl = np.sum(kl)
 
-            if np.all((kl - self.kl_bound) < 0.25 * self.kl_bound):
+            if np.all(np.abs(kl - self.kl_bound) < 0.25 * self.kl_bound):
                 # update controller
                 self.ctl = lgc
 

@@ -19,7 +19,7 @@ class MFGPS:
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
                  kl_bound=0.1, kl_adaptive=False,
-                 kl_stepwise=True, activation=None,
+                 kl_stepwise=False, activation=None,
                  slew_rate=False, action_penalty=None,
                  dyn_prior=None):
 
@@ -258,7 +258,7 @@ class MFGPS:
             if not self.kl_stepwise:
                 kl = np.sum(kl)
 
-            if np.all((kl - self.kl_bound) < 0.25 * self.kl_bound):
+            if np.all(np.abs(kl - self.kl_bound) < 0.25 * self.kl_bound):
                 # update controller
                 self.ctl = lgc
 

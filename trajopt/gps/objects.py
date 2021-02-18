@@ -169,12 +169,12 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         return self.f(x, u)
 
     def taylor_expansion(self, x, u):
-        _A = self.dfdx(x, u)
-        _B = self.dfdu(x, u)
+        A = self.dfdx(x, u)
+        B = self.dfdu(x, u)
         # residual of taylor expansion
-        _c = self.evalf(x, u) - _A @ x - _B @ u
-        _sigma = self.noise(x, u)
-        return _A, _B, _c, _sigma
+        c = self.evalf(x, u) - A @ x - B @ u
+        sigma = self.noise(x, u)
+        return A, B, c, sigma
 
     def extended_kalman(self, init_state, lgc, ulim):
         lgd = LinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
@@ -185,7 +185,7 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
         # forward propagation of mean dynamics
         xdist.mu[..., 0], xdist.sigma[..., 0] = init_state
         for t in range(self.nb_steps):
-            udist.mu[..., t] = np.clip(lgc.mean(xdist.mu[..., t], t), - ulim, ulim)
+            udist.mu[..., t] = np.clip(lgc.K[..., t] @ xdist.mu[..., t] + lgc.kff[..., t], -ulim, ulim)
             xdist.mu[..., t + 1] = self.evalf(xdist.mu[..., t], udist.mu[..., t])
 
         for t in range(self.nb_steps):
@@ -194,10 +194,10 @@ class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
 
             # construct variace of next time step with extend Kalman filtering
             mu_x, sigma_x = xdist.mu[..., t], xdist.sigma[..., t]
-            K, kff, _ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
+            K, kff, ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
 
             # propagate variance of action dist.
-            u_sigma = _ctl_sigma + K @ sigma_x @ K.T
+            u_sigma = ctl_sigma + K @ sigma_x @ K.T
             u_sigma = 0.5 * (u_sigma + u_sigma.T)
             udist.sigma[..., t] = u_sigma
 
