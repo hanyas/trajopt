@@ -49,6 +49,39 @@ class Riccati:
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
+    def rollout(self, nb_episodes, env=None):
+        if env is None:
+            env = self.env
+            env_cost = self.env_cost
+        else:
+            env = env
+            env_cost = env.unwrapped.cost
+
+        data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
+                'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
+                'xn': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
+                'c': np.zeros((self.nb_steps + 1, nb_episodes))}
+
+        for n in range(nb_episodes):
+            x = env.reset()
+
+            for t in range(self.nb_steps):
+                u = self.ctl.action(x, t)
+                data['u'][..., t, n] = u
+
+                # expose true reward function
+                c = env_cost(x, u, data['u'][..., t - 1, n], self.weighting[t])
+                data['c'][t] = c
+
+                data['x'][..., t, n] = x
+                x, _, _, _ = env.step(u)
+                data['xn'][..., t, n] = x
+
+            c = env_cost(x, np.zeros((self.dm_act, )),  np.zeros((self.dm_act, )), self.weighting[-1])
+            data['c'][-1, n] = c
+
+        return data
+
     def forward_pass(self, ctl):
         state = np.zeros((self.dm_state, self.nb_steps + 1))
         action = np.zeros((self.dm_act, self.nb_steps))
@@ -71,7 +104,7 @@ class Riccati:
         xvalue.V[..., -1] = self.cost.Cxx[..., -1]
         xvalue.v[..., -1] = self.cost.cx[..., -1]
 
-        for t in range(self.nb_steps - 2, -1, -1):
+        for t in range(self.nb_steps - 1, -1, -1):
             Qxx = self.cost.Cxx[..., t] + self.dyn.A[..., t].T @ xvalue.V[..., t + 1] @ self.dyn.A[..., t]
             Quu = self.cost.Cuu[..., t] + self.dyn.B[..., t].T @ xvalue.V[..., t + 1] @ self.dyn.B[..., t]
             Qux = self.cost.Cxu[..., t].T + self.dyn.B[..., t].T @ xvalue.V[..., t + 1] @ self.dyn.A[..., t]
