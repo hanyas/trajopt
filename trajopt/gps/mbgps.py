@@ -89,7 +89,34 @@ class MBGPS:
 
         self.last_return = - np.inf
 
-    def simulate(self, lgc):
+    def rollout(self, nb_episodes, stoch=True):
+        data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
+                'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
+                'xn': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
+                'c': np.zeros((self.nb_steps + 1, nb_episodes))}
+
+        for n in range(nb_episodes):
+            x = self.env.reset()
+
+            for t in range(self.nb_steps):
+                u = self.ctl.sample(x, t, stoch)
+                # u = np.clip(u, -self.ulim, self.ulim)
+                data['u'][..., t, n] = u
+
+                # expose true reward function
+                c = self.env_cost(x, u, data['u'][..., t - 1, n], self.weighting[t])
+                data['c'][t] = c
+
+                data['x'][..., t, n] = x
+                x, _, _, _ = self.env.step(u)
+                data['xn'][..., t, n] = x
+
+            c = self.env_cost(x, np.zeros((self.dm_act, )),  np.zeros((self.dm_act, )), self.weighting[-1])
+            data['c'][-1, n] = c
+
+        return data
+
+    def propagate(self, lgc):
         xdist, udist, lgd = self.dyn.extended_kalman(self.env_init, lgc, self.ulim)
 
         cost = np.zeros((self.nb_steps + 1, ))
@@ -194,7 +221,7 @@ class MBGPS:
         _trace = []
 
         # get mean traj. and linear system dynamics
-        self.xdist, self.udist, lgd, _cost = self.simulate(self.ctl)
+        self.xdist, self.udist, lgd, _cost = self.propagate(self.ctl)
 
         # update linearization of dynamics
         self.dyn.params = lgd.A, lgd.B, lgd.c, lgd.sigma
@@ -240,7 +267,7 @@ class MBGPS:
                 self.ctl = lgc
 
                 # extended-Kalman forward simulation
-                xdist, udist, lgd, _cost = self.simulate(lgc)
+                xdist, udist, lgd, _cost = self.propagate(lgc)
 
                 # current return
                 _return = np.sum(_cost)
