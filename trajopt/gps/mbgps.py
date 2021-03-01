@@ -89,29 +89,35 @@ class MBGPS:
 
         self.last_return = - np.inf
 
-    def rollout(self, nb_episodes, stoch=True):
+    def rollout(self, nb_episodes, stoch=True, env=None):
+        if env is None:
+            env = self.env
+            env_cost = self.env_cost
+        else:
+            env = env
+            env_cost = env.unwrapped.cost
+
         data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
                 'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
                 'xn': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
                 'c': np.zeros((self.nb_steps + 1, nb_episodes))}
 
         for n in range(nb_episodes):
-            x = self.env.reset()
+            x = env.reset()
 
             for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
-                # u = np.clip(u, -self.ulim, self.ulim)
                 data['u'][..., t, n] = u
 
                 # expose true reward function
-                c = self.env_cost(x, u, data['u'][..., t - 1, n], self.weighting[t])
+                c = env_cost(x, u, data['u'][..., t - 1, n], self.weighting[t])
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
-                x, _, _, _ = self.env.step(u)
+                x, _, _, _ = env.step(u)
                 data['xn'][..., t, n] = x
 
-            c = self.env_cost(x, np.zeros((self.dm_act, )),  np.zeros((self.dm_act, )), self.weighting[-1])
+            c = env_cost(x, np.zeros((self.dm_act, )),  np.zeros((self.dm_act, )), self.weighting[-1])
             data['c'][-1, n] = c
 
         return data
