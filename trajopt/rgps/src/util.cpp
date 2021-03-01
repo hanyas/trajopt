@@ -575,7 +575,7 @@ py::tuple parameter_backward_pass(array_tf _mu_x, array_tf _sigma_x,
     mat v(dm_state, nb_steps + 1);
     vec v0(nb_steps + 1);
 
-    int _diverge = 0;
+    int _diverge = -1;
 
     // last time step
     V.slice(nb_steps) = - Cxx.slice(nb_steps);
@@ -795,7 +795,7 @@ py::tuple regularized_parameter_backward_pass(array_tf _mu_x, array_tf _sigma_x,
     mat v(dm_state, nb_steps + 1);
     vec v0(nb_steps + 1);
 
-    int _diverge = 0;
+    int _diverge = -1;
 
     // last time step
     V.slice(nb_steps) = - Cxx.slice(nb_steps) + regCxx.slice(nb_steps);
