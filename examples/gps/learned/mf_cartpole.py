@@ -30,7 +30,9 @@ solver = MFGPS(env, nb_steps=100,
                activation={'mult': 1., 'shift': 80})
 
 # run gps
-trace = solver.run(nb_episodes=25, nb_iter=50, verbose=True)
+trace = solver.run(nb_learning_episodes=25,
+                   nb_evaluation_episodes=25,
+                   nb_iter=50, verbose=True)
 
 # execute and plot
 data = solver.rollout(25, stoch=True)

@@ -25,7 +25,9 @@ alg = MFGPS(env, nb_steps=60,
             dyn_prior=prior)
 
 # run gps
-trace = alg.run(nb_episodes=25, nb_iter=25, verbose=True)
+trace = alg.run(nb_learning_episodes=25,
+                nb_evaluation_episodes=25,
+                nb_iter=25, verbose=True)
 
 # plot dists
 alg.plot()
