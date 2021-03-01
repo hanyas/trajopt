@@ -2,7 +2,13 @@ from gym.envs.registration import register
 
 register(
     id='LQR-TO-v0',
-    entry_point='trajopt.envs:LQR',
+    entry_point='trajopt.envs:LQRv0',
+    max_episode_steps=1000,
+)
+
+register(
+    id='LQR-TO-v1',
+    entry_point='trajopt.envs:LQRv1',
     max_episode_steps=1000,
 )
 

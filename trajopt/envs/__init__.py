@@ -1,4 +1,5 @@
-from .lqr.lqr import LQR
+from .lqr.lqr_v0 import LQRv0
+from .lqr.lqr_v1 import LQRv1
 
 from .pendulum.pendulum import Pendulum
 from .pendulum.pendulum import PendulumWithCartesianCost

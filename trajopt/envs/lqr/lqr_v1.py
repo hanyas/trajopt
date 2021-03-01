@@ -5,18 +5,24 @@ from gym.utils import seeding
 import autograd.numpy as np
 
 
-class LQR(gym.Env):
+class LQRv1(gym.Env):
 
     def __init__(self):
         self.dm_state = 2
         self.dm_act = 1
 
-        self.dt = 0.1
+        self.dt = 0.01
 
-        self.g = np.array([10., 10.])
-        self.gw = np.array([1e1, 1e1])
+        self.x0 = np.array([0., 0.])
+        self.g = np.array([1., 0.])
 
-        self.uw = np.array([1.])
+        self.gw = np.array([1e2, 1e0])
+        self.uw = np.array([1e-3])
+
+        self.A = np.array([[0., 1e0], [-1e-2, -2e-1]])
+        self.B = np.array([[0.], [1.]])
+        self.c = np.array([0., 0.])
+
         self.umax = np.inf
         self.action_space = spaces.Box(low=-self.umax,
                                        high=self.umax, shape=(1,))
@@ -25,14 +31,7 @@ class LQR(gym.Env):
         self.observation_space = spaces.Box(low=-self.xmax,
                                             high=self.xmax)
 
-        # stochastic dynamics
-        self.A = np.array([[1.1, 0.], [1.0, 1.0]])
-        self.B = np.array([[1.], [0.]])
-        self.c = - self.A @ self.g  # stable at goal
-
         self.sigma = 1e-8 * np.eye(self.dm_state)
-
-        self.x0 = np.array([5., 5.])
         self.sigma0 = 1e-2 * np.eye(self.dm_state)
 
         self.state = None
