@@ -33,7 +33,7 @@ solver = MFGPS(env, nb_steps=100,
 trace = solver.run(nb_episodes=25, nb_iter=50, verbose=True)
 
 # execute and plot
-data = solver.sample(25, stoch=True)
+data = solver.rollout(25, stoch=True)
 
 plt.figure()
 for k in range(solver.dm_state):

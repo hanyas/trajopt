@@ -31,7 +31,7 @@ trace = alg.run(nb_episodes=25, nb_iter=25, verbose=True)
 alg.plot()
 
 # execute and plot
-data = alg.sample(25, stoch=True)
+data = alg.rollout(25, stoch=True)
 
 plt.figure()
 for k in range(alg.dm_state):

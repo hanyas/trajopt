@@ -92,7 +92,7 @@ class MFGPS:
 
         self.data = {}
 
-    def sample(self, nb_episodes, stoch=True):
+    def rollout(self, nb_episodes, stoch=True):
         data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
                 'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
                 'xn': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
@@ -210,11 +210,14 @@ class MFGPS:
 
         plt.show()
 
-    def run(self, nb_episodes, nb_iter=10, verbose=False):
+    def run(self, nb_learning_episodes,
+            nb_evaluation_episodes, nb_iter=10,
+            verbose=False):
         _trace = []
 
         # run init controller
-        self.data = self.sample(nb_episodes)
+        self.data = self.rollout(nb_learning_episodes)
+        eval = self.rollout(nb_evaluation_episodes)
 
         # fit time-variant linear dynamics
         self.dyn.learn(self.data)
@@ -226,7 +229,7 @@ class MFGPS:
         self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
         # mean objective under current ctrl.
-        self.last_return = np.mean(np.sum(self.data['c'], axis=0))
+        self.last_return = np.mean(np.sum(eval['c'], axis=0))
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
@@ -266,10 +269,11 @@ class MFGPS:
                 self.vfunc, self.qfunc = xvalue, xuvalue
 
                 # run current controller
-                self.data = self.sample(nb_episodes)
+                self.data = self.rollout(nb_learning_episodes)
+                eval = self.rollout(nb_evaluation_episodes)
 
                 # current return
-                _return = np.mean(np.sum(self.data['c'], axis=0))
+                _return = np.mean(np.sum(eval['c'], axis=0))
 
                 # expected vs actual improvement
                 _expected_imp = self.last_return - _expected_return
