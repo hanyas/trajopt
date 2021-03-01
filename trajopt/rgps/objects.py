@@ -5,6 +5,9 @@ from mimo.distributions import MatrixNormalWithKnownPrecision
 from mimo.distributions import LinearGaussianWithMatrixNormal
 from mimo.distributions import LinearGaussianWithKnownPrecision
 
+import scipy as sc
+from scipy import stats
+
 
 class Gaussian:
     def __init__(self, nb_dim, nb_steps):
@@ -39,10 +42,20 @@ class MatrixNormalParameters:
         self.mu = np.zeros((self.dm_param, self.nb_steps))
         self.sigma = np.zeros((self.dm_param, self.dm_param, self.nb_steps))
         for t in range(self.nb_steps):
-            self.sigma[..., t] = 100. * np.eye(self.dm_param)
+            self.sigma[..., t] = 1e0 * np.eye(self.dm_param)
 
     def sample(self, t):
         return np.random.multivariate_normal(self.mu[:, t], self.sigma[:, :, t])
+
+    def matrices(self, t):
+        A = np.reshape(self.mu[:self.dm_state * self.dm_state, t], (self.dm_state, self.dm_state), order='F')
+        B = np.reshape(self.mu[self.dm_state * self.dm_state: self.dm_state * self.dm_state
+                               + self.dm_state * self.dm_act, t], (self.dm_state, self.dm_act), order='F')
+        c = np.reshape(self.mu[- self.dm_state:, t], (self.dm_state, 1), order='F')
+        return A, B, c
+
+    def entropy(self, t):
+        return sc.stats.multivariate_normal(mean=self.mu[:, t], cov=self.sigma[..., t]).entropy()
 
 
 class QuadraticStateValue:
@@ -95,16 +108,21 @@ class QuadraticCost:
     def params(self, values):
         self.Cxx, self.cx, self.Cuu, self.cu, self.Cxu, self.c0 = values
 
-    def evaluate(self, x, u):
-        _ret = 0.
-        _u = np.hstack((u, np.zeros((self.dm_act, 1))))
+    def evaluate(self, x, u, stoch=True):
+        ret = 0.
+        _u = np.hstack((u.mu, np.zeros((self.dm_act, 1))))
         for t in range(self.nb_steps):
-            _ret += x[..., t].T @ self.Cxx[..., t] @ x[..., t] +\
-                    _u[..., t].T @ self.Cuu[..., t] @ _u[..., t] +\
-                    x[..., t].T @ self.Cxu[..., t] @ _u[..., t] +\
-                    self.cx[..., t].T @ x[..., t] +\
-                    self.cu[..., t].T @ _u[..., t] + self.c0[..., t]
-        return _ret
+            ret += x.mu[..., t].T @ self.Cxx[..., t] @ x.mu[..., t] +\
+                   _u[..., t].T @ self.Cuu[..., t] @ _u[..., t] +\
+                   x.mu[..., t].T @ self.Cxu[..., t] @ _u[..., t] +\
+                   self.cx[..., t].T @ x.mu[..., t] +\
+                   self.cu[..., t].T @ _u[..., t] + self.c0[..., t]
+            if stoch:
+                # does not consider cross terms for now
+                ret += np.trace(self.Cxx[..., t] @ x.sigma[..., t])
+                if t < self.nb_steps - 1:
+                    ret += np.trace(self.Cuu[..., t] @ u.sigma[..., t])
+        return ret
 
 
 class AnalyticalQuadraticCost(QuadraticCost):
@@ -208,3 +226,14 @@ class LinearGaussianControl:
         u_sigma = 0.5 * (u_sigma + u_sigma.T)
 
         return u_mu, u_sigma
+
+
+def pass_alpha_as_vector(f):
+    def wrapper(self, alpha, *args):
+        assert alpha is not None
+
+        if alpha.shape[0] == 1:
+            alpha = alpha * np.ones((self.nb_steps, ))
+
+        return f(self, alpha, *args)
+    return wrapper
