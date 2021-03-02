@@ -3,6 +3,7 @@ from gym import spaces
 from gym.utils import seeding
 
 import autograd.numpy as np
+from scipy.stats import beta
 
 
 class LQRv1(gym.Env):
@@ -19,7 +20,9 @@ class LQRv1(gym.Env):
         self.gw = np.array([1e2, 1e0])
         self.uw = np.array([1e-3])
 
-        self.A = np.array([[0., 1e0], [-1e-2, -2e-1]])
+        self.m, self.k, self.d = 1., 1e-2, 1e-1
+        self.A = lambda m, k, d: np.array([[0.     , 1e0       ],
+                                           [- k / m, -2 * d / m]])
         self.B = np.array([[0.], [1.]])
         self.c = np.array([0., 0.])
 
@@ -33,6 +36,8 @@ class LQRv1(gym.Env):
 
         self.sigma = 1e-8 * np.eye(self.dm_state)
         self.sigma0 = 1e-2 * np.eye(self.dm_state)
+
+        self.perturb = False
 
         self.state = None
         self.np_random = None
@@ -50,8 +55,12 @@ class LQRv1(gym.Env):
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
+        m, k, d = self.m, self.k, self.d
+        if self.perturb:
+            m += np.asscalar(0.5 * beta(2., 5.).rvs())
+
         def f(x, u):
-            return self.A @ x + self.B @ u + self.c
+            return self.A(m, k, d) @ x + self.B @ u + self.c
 
         k1 = f(x, _u)
         k2 = f(x + 0.5 * self.dt * k1, _u)
@@ -59,22 +68,6 @@ class LQRv1(gym.Env):
         k4 = f(x + self.dt * k3, _u)
 
         xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
-        xn = np.clip(xn, -self.xlim, self.xlim)
-
-        return xn
-
-    def inverse_dynamics(self, x, u):
-        _u = np.clip(u, -self.ulim, self.ulim)
-
-        def f(x, u):
-            return self.A @ x + self.B @ u + self.c
-
-        k1 = f(x, _u)
-        k2 = f(x - 0.5 * self.dt * k1, _u)
-        k3 = f(x - 0.5 * self.dt * k2, _u)
-        k4 = f(x - self.dt * k3, _u)
-
-        xn = x - self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
         xn = np.clip(xn, -self.xlim, self.xlim)
 
         return xn

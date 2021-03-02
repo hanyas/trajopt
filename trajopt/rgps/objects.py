@@ -57,6 +57,20 @@ class MatrixNormalParameters:
     def entropy(self, t):
         return sc.stats.multivariate_normal(mean=self.mu[:, t], cov=self.sigma[..., t]).entropy()
 
+    def plot(self, t, axs=None, color='b'):
+        import matplotlib.pyplot as plt
+
+        if axs is None:
+            _, axs = plt.subplots(self.dm_param, figsize=(8, 12))
+        for k, ax in enumerate(axs):
+            mu, sigma = self.mu[k, t], self.sigma[k, k, t]
+            plot_gaussian(mu, sigma, ax, color=color)
+
+        plt.tight_layout()
+        plt.show()
+
+        return axs
+
 
 class QuadraticStateValue:
     def __init__(self, dm_state, nb_steps):
@@ -237,3 +251,15 @@ def pass_alpha_as_vector(f):
 
         return f(self, alpha, *args)
     return wrapper
+
+
+def plot_gaussian(mu, sigma, ax, color='b', points=250):
+    from scipy.stats import norm
+
+    min = mu - 5. * sigma
+    max = mu + 5. * sigma
+    x = np.linspace(min, max, points)
+    p = norm.pdf(x, mu, sigma)
+
+    ax.plot(x, p, color=color, linewidth=2.)
+    ax.fill_between(x, 0, p, color=color, alpha=0.1)
