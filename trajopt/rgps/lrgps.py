@@ -1,13 +1,12 @@
 import autograd.numpy as np
 
 import scipy as sc
-from scipy import optimize
-
 from copy import deepcopy
 
 from trajopt.rgps.objects import Gaussian, QuadraticCost
 from trajopt.rgps.objects import AnalyticalQuadraticCost
-from trajopt.rgps.objects import QuadraticStateValue, QuadraticStateActionValue
+from trajopt.rgps.objects import QuadraticStateValue
+from trajopt.rgps.objects import QuadraticStateActionValue
 from trajopt.rgps.objects import LinearGaussianControl
 from trajopt.rgps.objects import MatrixNormalParameters
 
@@ -18,9 +17,11 @@ from trajopt.rgps.core import gaussian_divergence
 from trajopt.rgps.core import gaussian_interp_w2
 from trajopt.rgps.core import gaussian_interp_kl
 from trajopt.rgps.core import quad_expectation
-from trajopt.rgps.core import policy_augment_cost, policy_backward_pass
+from trajopt.rgps.core import policy_augment_cost
+from trajopt.rgps.core import policy_backward_pass
 from trajopt.rgps.core import parameter_backward_pass
 from trajopt.rgps.core import parameter_augment_cost
+from trajopt.rgps.core import regularized_parameter_augment_cost
 from trajopt.rgps.core import cubature_forward_pass
 
 import logging
@@ -33,9 +34,11 @@ class LRGPS:
 
     def __init__(self, env, nb_steps,
                  init_state, init_action_sigma=1.,
-                 policy_kl_bound=0.1, param_kl_bound=100,
-                 kl_stepwise=False, activation=None,
-                 slew_rate=False, action_penalty=None):
+                 policy_kl_bound=0.1, param_nominal_kl_bound=100.,
+                 param_regularizer_kl_bound=1.,
+                 policy_kl_stepwise=False, activation=None,
+                 slew_rate=False, action_penalty=None,
+                 nominal_variance=1e-8):
 
         # logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
@@ -60,16 +63,19 @@ class LRGPS:
         if action_penalty is not None:
             self.env.unwrapped.uw = action_penalty * np.ones((self.dm_act, ))
 
-        self.kl_stepwise = kl_stepwise
-        if self.kl_stepwise:
+        self.policy_kl_stepwise = policy_kl_stepwise
+        if self.policy_kl_stepwise:
             self.policy_kl_bound = policy_kl_bound * np.ones((self.nb_steps, ))
             self.alpha = 1e8 * np.ones((self.nb_steps, ))
         else:
             self.policy_kl_bound = policy_kl_bound * np.ones((1, ))
             self.alpha = 1e8 * np.ones((1, ))
 
-        self.param_kl_bound = param_kl_bound
-        self.beta = np.array([1e16])
+        self.param_nominal_kl_bound = param_nominal_kl_bound * np.ones((1, ))
+        self.beta = 1e16 * np.ones((1, ))
+
+        self.param_regularizer_kl_bound = param_regularizer_kl_bound * np.ones((1, ))
+        self.eta = 1e16 * np.ones((1, ))
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -81,32 +87,26 @@ class LRGPS:
         self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        self.nominal = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
-
-        # LQG dynamics
-        # _A = np.array([[1.11627793, 0.00000000],
-        #                [0.11107100, 1.10517083]])
-        # _B = np.array([[0.10570721],
-        #                [0.00536379]])
-        # _c = np.array([-1.16277934, -2.16241837])
-
-        _A = np.array([[ 9.99999500e-01,  9.99000500e-03],
-                       [-9.99000500e-05,  9.98001499e-01]])
-        _B = np.array([[4.99666792e-05],
-                       [9.99000500e-03]])
-        _c = np.array([0.,  0.])
-
-        _params = np.hstack((_A, _B, _c[:, None]))
-        for t in range(self.nb_steps):
-            self.nominal.mu[..., t] = np.reshape(_params, self.dm_param, order='F')
-            self.nominal.sigma[..., t] = 1e-8 * np.eye(self.dm_param)
-
-        self.param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
-
         # We assume process noise over dynamics is known
         self.noise = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
         for t in range(self.nb_steps):
             self.noise[..., t] = self.env_noise
+
+        self.param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
+        self.nominal = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
+
+        # LQG dynamics
+        from autograd import jacobian
+
+        input = tuple([np.zeros((self.dm_state, )), np.zeros((self.dm_act, ))])
+        A = jacobian(self.env.unwrapped.dynamics, 0)(*input)
+        B = jacobian(self.env.unwrapped.dynamics, 1)(*input)
+        c = self.env.unwrapped.dynamics(*input)
+
+        tmp = np.hstack((A, B, c[:, None]))
+        for t in range(self.nb_steps):
+            self.nominal.mu[..., t] = np.reshape(tmp, self.dm_param, order='F')
+            self.nominal.sigma[..., t] = nominal_variance * np.eye(self.dm_param)
 
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
 
@@ -125,17 +125,21 @@ class LRGPS:
 
         self.cost = AnalyticalQuadraticCost(self.env_cost, self.dm_state, self.dm_act, self.nb_steps + 1)
 
-        self.last_return = - np.inf
-
         self.data = {}
 
-    def rollout(self, nb_episodes, stoch=True, env=None):
+    def rollout(self, nb_episodes, stoch=True, env=None,
+                ctl=None, adversary=False):
         if env is None:
             env = self.env
             env_cost = self.env_cost
         else:
             env = env
             env_cost = env.unwrapped.cost
+
+        if ctl is None:
+            ctl = self.ctl
+        else:
+            ctl = ctl
 
         data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
                 'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
@@ -146,7 +150,7 @@ class LRGPS:
             x = env.reset()
 
             for t in range(self.nb_steps):
-                u = self.ctl.sample(x, t, stoch)
+                u = ctl.sample(x, t, stoch)
                 data['u'][..., t, n] = u
 
                 # expose true reward function
@@ -154,7 +158,12 @@ class LRGPS:
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
-                x, _, _, _ = env.step(u)
+                if not adversary:
+                    x, _, _, _ = env.step(u)
+                else:
+                    dist = {'mu': self.param.mu[..., t],
+                            'sigma': self.param.sigma[..., t]}
+                    x, _, _, _ = env.evolve(u, dist)
                 data['xn'][..., t, n] = x
 
             c = env_cost(x, np.zeros((self.dm_act, )),  np.zeros((self.dm_act, )), self.weighting[-1])
@@ -247,7 +256,7 @@ class LRGPS:
         return agcost
 
     @pass_alpha_as_vector
-    def policy_backward_pass(self, alpha, agcost):
+    def policy_backward_pass(self, alpha, agcost, param):
         lgc = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps)
         xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         xuvalue = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
@@ -257,26 +266,32 @@ class LRGPS:
         xvalue.V, xvalue.v, xvalue.v0, \
         lgc.K, lgc.kff, lgc.sigma, diverge = policy_backward_pass(agcost.Cxx, agcost.cx, agcost.Cuu,
                                                                   agcost.cu, agcost.Cxu, agcost.c0,
-                                                                  self.param.mu, self.param.sigma, self.noise,
+                                                                  param.mu, param.sigma, self.noise,
                                                                   alpha, self.dm_state, self.dm_act, self.nb_steps)
         return lgc, xvalue, xuvalue, diverge
 
-    def policy_dual(self, alpha):
+    def policy_kldiv(self, lgc, xdist):
+        return policy_divergence(lgc.K, lgc.kff, lgc.sigma,
+                                 self.ctl.K, self.ctl.kff, self.ctl.sigma,
+                                 xdist.mu, xdist.sigma,
+                                 self.dm_state, self.dm_act, self.nb_steps)[0]
+
+    def policy_dual(self, alpha, param):
         # augmented cost
         agcost = self.policy_augment_cost(alpha)
 
         # backward pass
-        lgc, xvalue, xuvalue, diverge = self.policy_backward_pass(alpha, agcost)
+        lgc, xvalue, xuvalue, diverge = self.policy_backward_pass(alpha, agcost, param)
 
         # forward pass
-        xdist, udist, xudist = self.cubature_forward_pass(lgc, self.param)
+        xdist, udist, xudist = self.cubature_forward_pass(lgc, param)
 
         # dual expectation
         dual = quad_expectation(xdist.mu[..., 0], xdist.sigma[..., 0],
                                 xvalue.V[..., 0], xvalue.v[..., 0],
                                 xvalue.v0[..., 0])
 
-        if self.kl_stepwise:
+        if self.policy_kl_stepwise:
             dual = np.array([dual]) - np.sum(alpha * self.policy_kl_bound)
             grad = self.policy_kldiv(lgc, xdist) - self.policy_kl_bound
         else:
@@ -285,11 +300,55 @@ class LRGPS:
 
         return -1. * dual, -1. * grad
 
-    def policy_kldiv(self, lgc, xdist):
-        return policy_divergence(lgc.K, lgc.kff, lgc.sigma,
-                                 self.ctl.K, self.ctl.kff, self.ctl.sigma,
-                                 xdist.mu, xdist.sigma,
-                                 self.dm_state, self.dm_act, self.nb_steps)
+    def policy_dual_optimization(self, alpha, param, iters=10):
+        if self.policy_kl_stepwise:
+            min_alpha, max_alpha = 1e-4 * np.ones((self.nb_steps, )), 1e64 * np.ones((self.nb_steps, ))
+        else:
+            min_alpha, max_alpha = 1e-4 * np.ones((1, )), 1e64 * np.ones((1, ))
+
+        best_alpha = alpha
+
+        best_dual, best_grad = np.inf, np.inf
+        for i in range(iters):
+            dual, grad = self.policy_dual(alpha, param)
+
+            if not np.isnan(dual) and not np.any(np.isnan(grad)):
+                if grad < best_grad:
+                    best_alpha = alpha
+                    best_dual = dual
+                    best_grad = grad
+
+                if self.policy_kl_stepwise:
+                    for t in range(self.nb_steps):
+                        if np.all(abs(grad) < 0.1 * self.policy_kl_bound):
+                            return alpha, dual, grad
+                        else:
+                            if grad[t] > 0:  # alpha too large
+                                max_alpha[t] = alpha[t]
+                                alpha[t] = np.sqrt(min_alpha[t] * max_alpha[t])
+                            else:  # alpha too small
+                                min_alpha[t] = alpha[t]
+                                alpha[t] = np.sqrt(min_alpha[t] * max_alpha[t])
+                else:
+                    if abs(grad) < 0.1 * self.policy_kl_bound:
+                        LOGGER.debug("Param KL: %.2e, Grad: %f, Beta: %f" % (self.policy_kl_bound, grad, alpha))
+                        return alpha, dual, grad
+                    else:
+                        if grad > 0:  # alpha too large
+                            max_alpha = alpha
+                            alpha = np.sqrt(min_alpha * max_alpha)
+                            LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Beta too big, New Beta: %2.3e, Min. Beta: %2.3e, Max. Beta: %2.3e"
+                                         % (self.policy_kl_bound, grad, alpha, min_alpha, max_alpha))
+                        else:  # alpha too small
+                            min_alpha = alpha
+                            alpha = np.sqrt(min_alpha * max_alpha)
+                            LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Beta too small, New Beta: %2.3e, Min. Beta: %2.3e, Max. Beta: %2.3e"
+                                         % (self.policy_kl_bound, grad, alpha, min_alpha, max_alpha))
+            else:
+                min_alpha = alpha
+                alpha = np.sqrt(min_alpha * max_alpha)
+
+        return best_alpha, best_dual, best_grad
 
     def parameter_augment_cost(self, beta):
         agcost = QuadraticCost(self.dm_param, self.dm_param, self.nb_steps)
@@ -297,46 +356,42 @@ class LRGPS:
                                                                   beta, self.dm_param, self.nb_steps)
         return agcost
 
-    def parameter_backward_pass(self, beta, agcost, xdist):
+    def parameter_backward_pass(self, beta, agcost, xdist, ctl, eta=0.):
         param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
         xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
 
         xvalue.V, xvalue.v, xvalue.v0,\
         param.mu, param.sigma, diverge = parameter_backward_pass(xdist.mu, xdist.sigma,
-                                                                 self.ctl.K, self.ctl.kff, self.ctl.sigma, self.noise,
+                                                                 ctl.K, ctl.kff, ctl.sigma, self.noise,
                                                                  self.cost.cx, self.cost.Cxx, self.cost.Cuu,
                                                                  self.cost.cu, self.cost.Cxu, self.cost.c0,
                                                                  agcost.Cxx, agcost.cx, agcost.c0,
-                                                                 beta, self.dm_state, self.dm_act, self.dm_param,
+                                                                 beta, eta, self.dm_state, self.dm_act, self.dm_param,
                                                                  self.nb_steps)
         return param, xvalue, diverge
 
-    def parameter_dual(self, beta):
+    def parameter_dual(self, beta, ctl):
 
         agcost = self.parameter_augment_cost(beta)
-
-        # # initialize adversial xdist with wide param dist.
-        # param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
-        # q_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
 
         # initial adversial xdist. with policy xdist.
         q_xdist = deepcopy(self.xdist)
 
         # first iteration to establish initial conv_kl
-        param, xvalue, diverge = self.parameter_backward_pass(beta, agcost, q_xdist)
+        param, xvalue, diverge = self.parameter_backward_pass(beta, agcost, q_xdist, ctl)
         if diverge != -1:
             return np.nan, np.nan
-        p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
+        p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
 
-        # conergence of inner loop
+        # convergence of inner loop
         xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
                                         q_xdist.mu, q_xdist.sigma,
                                         self.dm_state, self.nb_steps + 1)
         while np.any(xdist_kl > 1e-3):
-            param, xvalue, diverge = self.parameter_backward_pass(beta, agcost, q_xdist)
+            param, xvalue, diverge = self.parameter_backward_pass(beta, agcost, q_xdist, ctl)
             if diverge != -1:
                 return np.nan, np.nan
-            p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
+            p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
 
             # check convergence of loop
             xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
@@ -351,53 +406,134 @@ class LRGPS:
                                 xvalue.V[..., 0], xvalue.v[..., 0],
                                 xvalue.v0[..., 0])
 
-        dual += beta * (np.sum(self.parameter_kldiv(param)) - self.param_kl_bound)
+        dual = np.array([dual]) + beta * (np.sum(self.parameter_nominal_kldiv(param)) - self.param_nominal_kl_bound)
+        grad = np.sum(self.parameter_nominal_kldiv(param)) - self.param_nominal_kl_bound
 
-        # dual gradient
-        grad = np.sum(self.parameter_kldiv(param)) - self.param_kl_bound
+        return -1. * dual, -1. * grad
 
-        return -1. * np.array([dual]), -1. * np.array([grad])
+    def parameter_dual_optimization(self, beta, ctl, iters=50):
+        min_beta, max_beta = 1e-4 * np.ones((1, )), 1e64 * np.ones((1, ))
 
-    def parameter_dual_optimization(self, beta, iters=10):
-        min_beta, max_beta = 1e-4, 1e64
         best_beta = beta
-
-        best_dual, best_grad = np.inf, None
+        best_dual, best_grad = np.inf, np.inf
         for i in range(iters):
-            dual, grad = self.parameter_dual(beta)
+            dual, grad = self.parameter_dual(beta, ctl)
 
-            if not np.isnan(dual) and not np.isnan(grad):
-                if dual < best_dual:
+            if not np.isnan(dual) and not np.any(np.isnan(grad)):
+                if grad < best_grad:
                     best_beta = beta
-                    best_dual = dual
                     best_grad = grad
+                    best_dual = dual
 
-                if abs(grad) < 0.1 * self.param_kl_bound:
-                    LOGGER.debug("Param KL: %.2e, Grad: %f, Beta: %f" % (self.param_kl_bound, grad, beta))
+                if abs(grad) < 0.1 * self.param_nominal_kl_bound:
+                    LOGGER.debug("Param KL: %.2e, Grad: %f, Beta: %f" % (self.param_regularizer_kl_bound, grad, beta))
                     return beta, dual, grad
                 else:
                     if grad > 0:  # beta too large
                         max_beta = beta
                         beta = np.sqrt(min_beta * max_beta)
                         LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Beta too big, New Beta: %2.3e, Min. Beta: %2.3e, Max. Beta: %2.3e"
-                                     % (self.param_kl_bound, grad, beta, min_beta, max_beta))
+                                     % (self.param_nominal_kl_bound, grad, beta, min_beta, max_beta))
                     else:  # beta too small
                         min_beta = beta
                         beta = np.sqrt(min_beta * max_beta)
                         LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Beta too small, New Beta: %2.3e, Min. Beta: %2.3e, Max. Beta: %2.3e"
-                                     % (self.param_kl_bound, grad, beta, min_beta, max_beta))
-
+                                     % (self.param_nominal_kl_bound, grad, beta, min_beta, max_beta))
             else:
                 min_beta = beta
                 beta = np.sqrt(min_beta * max_beta)
-                LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Backward pass diverged, New Beta: %2.3e, Min. Beta: %2.3e, Max. Beta: %2.3e"
-                             % (self.param_kl_bound, grad, beta, min_beta, max_beta))
 
         return best_beta, best_dual, best_grad
 
-    def parameter_kldiv(self, param):
+    def regularized_parameter_augment_cost(self, eta, last):
+        agcost = QuadraticCost(self.dm_param, self.dm_param, self.nb_steps)
+        agcost.Cxx, agcost.cx, agcost.c0 = regularized_parameter_augment_cost(last.mu, last.sigma, eta,
+                                                                              self.dm_param, self.nb_steps)
+        return agcost
+
+    def regularized_parameter_dual(self, eta, ctl, last):
+
+        agcost = self.regularized_parameter_augment_cost(eta, last)
+
+        # initial adversial xdist. with policy xdist.
+        q_xdist = deepcopy(self.xdist)
+
+        # first iteration to establish initial conv_kl
+        param, xvalue, diverge = self.parameter_backward_pass(0., agcost, q_xdist, ctl, eta)
+        if diverge != -1:
+            return np.nan, np.nan
+        p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
+
+        # convergence of inner loop
+        xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
+                                        q_xdist.mu, q_xdist.sigma,
+                                        self.dm_state, self.nb_steps + 1)
+        while np.any(xdist_kl > 1e-3):
+            param, xvalue, diverge = self.parameter_backward_pass(0., agcost, q_xdist, ctl, eta)
+            if diverge != -1:
+                return np.nan, np.nan
+            p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
+
+            # check convergence of loop
+            xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
+                                            q_xdist.mu, q_xdist.sigma,
+                                            self.dm_state, self.nb_steps + 1)
+
+            # interpolate between distributions
+            q_xdist.mu, q_xdist.sigma = self.interp_gauss_kl(q_xdist.mu, q_xdist.sigma,
+                                                             p_xdist.mu, p_xdist.sigma, 1e-1)
+        # dual expectation
+        dual = quad_expectation(q_xdist.mu[..., 0], q_xdist.sigma[..., 0],
+                                xvalue.V[..., 0], xvalue.v[..., 0],
+                                xvalue.v0[..., 0])
+
+        dual = np.array([dual]) + eta * (np.sum(self.parameter_regularizer_kldiv(last, param)) - self.param_regularizer_kl_bound)
+        grad = np.sum(self.parameter_regularizer_kldiv(last, param)) - self.param_regularizer_kl_bound
+
+        return -1. * dual, -1. * grad
+
+    def regularized_parameter_dual_optimization(self, eta, ctl, last, iters=10):
+        min_eta, max_eta = 1e-4 * np.ones((1,)), 1e64 * np.ones((1,))
+
+        best_eta = eta
+        best_dual, best_grad = np.inf, np.inf
+        for i in range(iters):
+            dual, grad = self.regularized_parameter_dual(eta, ctl, last)
+
+            if not np.isnan(dual) and not np.any(np.isnan(grad)):
+                if grad < best_grad:
+                    best_eta = eta
+                    best_dual = dual
+                    best_grad = grad
+
+                if abs(grad) < 0.1 * self.param_regularizer_kl_bound:
+                    LOGGER.debug("Param KL: %.2e, Grad: %f, Eta: %f" % (self.param_regularizer_kl_bound, grad, eta))
+                    return eta, dual, grad
+                else:
+                    if grad > 0:  # eta too large
+                        max_eta = eta
+                        eta = np.sqrt(min_eta * max_eta)
+                        LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Eta too big, New Eta: %2.3e, Min. Eta: %2.3e, Max. Eta: %2.3e"
+                                     % (self.param_regularizer_kl_bound, grad, eta, min_eta, max_eta))
+                    else:  # eta too small
+                        min_eta = eta
+                        eta = np.sqrt(min_eta * max_eta)
+                        LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Eta too big, New Eta: %2.3e, Min. Eta: %2.3e, Max. Eta: %2.3e"
+                                     % (self.param_regularizer_kl_bound, grad, eta, min_eta, max_eta))
+            else:
+                min_eta = eta
+                eta = np.sqrt(min_eta * max_eta)
+
+        return best_eta, best_dual, best_grad
+
+    def parameter_nominal_kldiv(self, param):
         return self.gaussians_kldiv(param.mu, param.sigma,
                                     self.nominal.mu, self.nominal.sigma,
+                                    self.dm_param, self.nb_steps)
+
+    def parameter_regularizer_kldiv(self, last, param):
+        return self.gaussians_kldiv(param.mu, param.sigma,
+                                    last.mu, last.sigma,
                                     self.dm_param, self.nb_steps)
 
     @staticmethod
@@ -456,7 +592,101 @@ class LRGPS:
 
         return kl
 
-    def plot(self, xdist=None, udist=None):
+    def parameter_optimization(self, ctl, iters=100):
+        # worst-case parameter optimization
+        beta = 1e16 * np.ones((1,))
+        beta, _, _ = self.parameter_dual_optimization(beta, ctl, iters=iters)
+
+        agcost = self.parameter_augment_cost(beta)
+
+        # initial adversial xdist. with policy xdist.
+        q_xdist = deepcopy(self.xdist)
+
+        # first iteration to establish initial conv_kl
+        param, _, _ = self.parameter_backward_pass(beta, agcost, q_xdist, ctl)
+        p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
+
+        # convergence of inner loop
+        xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
+                                        q_xdist.mu, q_xdist.sigma,
+                                        self.dm_state, self.nb_steps + 1)
+        while np.any(xdist_kl > 1e-3):
+            param, _, _ = self.parameter_backward_pass(beta, agcost, q_xdist, ctl)
+            p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
+
+            # check convergence of loop
+            xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
+                                            q_xdist.mu, q_xdist.sigma,
+                                            self.dm_state, self.nb_steps + 1)
+
+            # interpolate between distributions
+            q_xdist.mu, q_xdist.sigma = self.interp_gauss_kl(q_xdist.mu, q_xdist.sigma,
+                                                             p_xdist.mu, p_xdist.sigma, 1e-1)
+
+        return param, beta
+
+    def reguarlized_parameter_optimization(self, ctl, iters=100,
+                                           verbose=True):
+        # worst-case parameter optimization
+        last = deepcopy(self.nominal)
+
+        param_nom_kl = 0.
+        eta = 1e16 * np.ones((1,))
+        while param_nom_kl < self.param_nominal_kl_bound:
+            eta, _, _ = self.regularized_parameter_dual_optimization(eta, ctl, last, iters=iters)
+
+            agcost = self.regularized_parameter_augment_cost(eta, last)
+
+            # initial adversial xdist. with policy xdist.
+            q_xdist = deepcopy(self.xdist)
+
+            # first iteration to establish initial conv_kl
+            param, _, _ = self.parameter_backward_pass(0., agcost, q_xdist, ctl, eta)
+            p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
+
+            # convergence of inner loop
+            xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
+                                            q_xdist.mu, q_xdist.sigma,
+                                            self.dm_state, self.nb_steps + 1)
+            while np.any(xdist_kl > 1e-3):
+                param, _, _ = self.parameter_backward_pass(0., agcost, q_xdist, ctl, eta)
+                p_xdist, _, _ = self.cubature_forward_pass(ctl, param)
+
+                # check convergence of loop
+                xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
+                                                q_xdist.mu, q_xdist.sigma,
+                                                self.dm_state, self.nb_steps + 1)
+
+                # interpolate between distributions
+                q_xdist.mu, q_xdist.sigma = self.interp_gauss_kl(q_xdist.mu, q_xdist.sigma,
+                                                                 p_xdist.mu, p_xdist.sigma, 1e-1)
+
+            param_reg_kl = np.sum(self.parameter_regularizer_kldiv(last, param))
+            if np.abs(param_reg_kl - self.param_regularizer_kl_bound) < 0.1 * self.param_regularizer_kl_bound:
+                # update param dist.
+                last = param
+                # compute target kl to nominal
+                param_nom_kl = np.sum(self.parameter_nominal_kldiv(param))
+
+        return last, eta
+
+    def policy_optimization(self, param):
+        # policy optimization
+        if self.policy_kl_stepwise:
+            alpha_init = 1e16 * np.ones((self.nb_steps,))
+        else:
+            alpha_init = 1e16 * np.ones((1,))
+
+        alpha, _, _ = self.policy_dual_optimization(alpha_init, param, iters=500)
+
+        # re-compute after opt.
+        policy_agcost = self.policy_augment_cost(alpha)
+        lgc, xvalue, xuvalue, diverge = self.policy_backward_pass(alpha, policy_agcost, param)
+        worst_xdist, worst_udist, worst_xudist = self.cubature_forward_pass(lgc, param)
+
+        return lgc, worst_xdist, xvalue, xuvalue, alpha
+
+    def plot_distributions(self, xdist=None, udist=None):
         xdist = self.xdist if xdist is None else xdist
         udist = self.udist if udist is None else udist
 
@@ -482,113 +712,9 @@ class LRGPS:
 
         plt.show()
 
-    def compare(self, std_ctl):
-        assert std_ctl is not None
-
-        std_xdist, std_udist, _ = self.cubature_forward_pass(std_ctl, self.nominal)
-        std_worst_xdist, std_worst_udist, _ = self.cubature_forward_pass(std_ctl, self.param)
-
-        robust_xdist, robust_udist, _ = self.cubature_forward_pass(self.ctl, self.nominal)
-        robust_worst_xdist, robust_worst_udist, _ = self.cubature_forward_pass(self.ctl, self.param)
-
-        cost_nom_env_std_ctl = self.cost.evaluate(std_xdist, std_udist)
-        cost_nom_env_rbst_ctl = self.cost.evaluate(robust_xdist, robust_udist)
-
-        print("Cost of Standard and Robust Control on Nominal Env")
-        print("Std. Ctl.: ", cost_nom_env_std_ctl, "Rbst. Ctl.", cost_nom_env_rbst_ctl)
-
-        cost_adv_env_std_ctl = self.cost.evaluate(std_worst_xdist, std_worst_udist)
-        cost_adv_env_rbst_ctl = self.cost.evaluate(robust_worst_xdist, robust_worst_udist)
-
-        print("Cost of Standard and Robust Control on Adverserial Env")
-        print("Std. Ctl.: ", cost_adv_env_std_ctl, "Rbst. Ctl.", cost_adv_env_rbst_ctl)
-
-        import matplotlib.pyplot as plt
-
-        plt.figure(figsize=(6, 12))
-        plt.suptitle("Standard vs Robust Ctl: Nominal Env")
-
-        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-        for k in range(self.dm_state):
-            plt.subplot(self.dm_state + self.dm_act, 1, k + 1)
-
-            plt.plot(t, std_xdist.mu[k, :], '-b')
-            lb = std_xdist.mu[k, :] - 2. * np.sqrt(std_xdist.sigma[k, k, :])
-            ub = std_xdist.mu[k, :] + 2. * np.sqrt(std_xdist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='blue', alpha=0.1)
-
-            plt.plot(t, robust_xdist.mu[k, :], '-r')
-            lb = robust_xdist.mu[k, :] - 2. * np.sqrt(robust_xdist.sigma[k, k, :])
-            ub = robust_xdist.mu[k, :] + 2. * np.sqrt(robust_xdist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='red', alpha=0.1)
-
-        t = np.linspace(0, self.nb_steps, self.nb_steps)
-        for k in range(self.dm_act):
-            plt.subplot(self.dm_state + self.dm_act, 1, self.dm_state + k + 1)
-
-            plt.plot(t, std_udist.mu[k, :], '-g')
-            lb = std_udist.mu[k, :] - 2. * np.sqrt(std_udist.sigma[k, k, :])
-            ub = std_udist.mu[k, :] + 2. * np.sqrt(std_udist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='green', alpha=0.1)
-
-            plt.plot(t, robust_udist.mu[k, :], '-m')
-            lb = robust_udist.mu[k, :] - 2. * np.sqrt(robust_udist.sigma[k, k, :])
-            ub = robust_udist.mu[k, :] + 2. * np.sqrt(robust_udist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='magenta', alpha=0.1)
-
-        plt.show()
-
-        plt.figure(figsize=(6, 12))
-        plt.suptitle("Standard vs Robust Ctl: Perturbed Env")
-
-        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-        for k in range(self.dm_state):
-            plt.subplot(self.dm_state + self.dm_act, 1, k + 1)
-
-            plt.plot(t, std_worst_xdist.mu[k, :], '-b')
-            lb = std_worst_xdist.mu[k, :] - 2. * np.sqrt(std_worst_xdist.sigma[k, k, :])
-            ub = std_worst_xdist.mu[k, :] + 2. * np.sqrt(std_worst_xdist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='blue', alpha=0.1)
-
-            plt.plot(t, robust_worst_xdist.mu[k, :], '-r')
-            lb = robust_worst_xdist.mu[k, :] - 2. * np.sqrt(robust_worst_xdist.sigma[k, k, :])
-            ub = robust_worst_xdist.mu[k, :] + 2. * np.sqrt(robust_worst_xdist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='red', alpha=0.1)
-
-        t = np.linspace(0, self.nb_steps, self.nb_steps)
-        for k in range(self.dm_act):
-            plt.subplot(self.dm_state + self.dm_act, 1, self.dm_state + k + 1)
-
-            plt.plot(t, std_worst_udist.mu[k, :], '-g')
-            lb = std_worst_udist.mu[k, :] - 2. * np.sqrt(std_worst_udist.sigma[k, k, :])
-            ub = std_worst_udist.mu[k, :] + 2. * np.sqrt(std_worst_udist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='green', alpha=0.1)
-
-            plt.plot(t, robust_worst_udist.mu[k, :], '-m')
-            lb = robust_worst_udist.mu[k, :] - 2. * np.sqrt(robust_worst_udist.sigma[k, k, :])
-            ub = robust_worst_udist.mu[k, :] + 2. * np.sqrt(robust_worst_udist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='magenta', alpha=0.1)
-
-        plt.show()
-
-        plt.figure(figsize=(6, 12))
-        plt.suptitle("Standard vs Robust Ctl: Feedback Controller")
-
-        for i in range(self.dm_state):
-            plt.subplot(self.dm_state + self.dm_act, 1, i + 1)
-            plt.plot(self.ctl.K[0, i, ...], color='r', linestyle='None', marker='o', markersize=3)
-            plt.plot(std_ctl.K[0, i, ...], color='k')
-
-        for i in range(self.dm_act):
-            plt.subplot(self.dm_state + self.dm_act, 1, self.dm_state + i + 1)
-            plt.plot(self.ctl.kff[i, ...], color='r', linestyle='None', marker='o', markersize=3)
-            plt.plot(std_ctl.kff[i, ...], color='k')
-
-        plt.show()
-
-    def run(self, nb_iter=10, verbose=False):
-
-        _trace = []
+    def run(self, nb_iter=10, verbose=False,
+            optimize_adversary=True, iterative_adversary=False):
+        trace = []
 
         # current state distribution
         self.xdist, self.udist, self.xudist = self.cubature_forward_pass(self.ctl, self.nominal)
@@ -597,74 +723,33 @@ class LRGPS:
         self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
         # mean objective under current ctrl.
-        _return = self.cost.evaluate(self.xdist, self.udist)
-        self.last_return = np.sum(_return)
-
-        _trace.append(self.last_return)
+        cost = self.cost.evaluate(self.xdist, self.udist)
+        trace.append(np.sum(cost))
 
         for iter in range(nb_iter):
-            # worst-case parameter optimization
-            self.beta, _, _ = self.parameter_dual_optimization(self.beta, iters=50)
-
-            agcost = self.parameter_augment_cost(self.beta)
-
-            # # initialize adversial xdist with wide param dist.
-            # param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
-            # q_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
-
-            # initial adversial xdist. with policy xdist.
-            q_xdist = deepcopy(self.xdist)
-
-            # first iteration to establish initial conv_kl
-            self.param, _, _ = self.parameter_backward_pass(self.beta, agcost, q_xdist)
-            p_xdist, _, _ = self.cubature_forward_pass(self.ctl, self.param)
-
-            # conergence of inner loop
-            xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
-                                            q_xdist.mu, q_xdist.sigma,
-                                            self.dm_state, self.nb_steps + 1)
-            while np.any(xdist_kl > 1e-3):
-                self.param, _, _ = self.parameter_backward_pass(self.beta, agcost, q_xdist)
-                p_xdist, _, _ = self.cubature_forward_pass(self.ctl, self.param)
-
-                # check convergence of loop
-                xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
-                                                q_xdist.mu, q_xdist.sigma,
-                                                self.dm_state, self.nb_steps + 1)
-
-                # interpolate between distributions
-                q_xdist.mu, q_xdist.sigma = self.interp_gauss_kl(q_xdist.mu, q_xdist.sigma,
-                                                                 p_xdist.mu, p_xdist.sigma, 1e-1)
-
-            param_kl = np.sum(self.parameter_kldiv(self.param))
-
-            if self.kl_stepwise:
-                alpha_init = 1e8 * np.ones((self.nb_steps,))
-                alpha_bounds = ((1e-16, 1e16), ) * self.nb_steps
+            if optimize_adversary:
+                if iterative_adversary:
+                    self.param, self.eta = self.reguarlized_parameter_optimization(self.ctl)
+                else:
+                    self.param, self.beta = self.parameter_optimization(self.ctl)
             else:
-                alpha_init = 1e8 * np.ones((1,))
-                alpha_bounds = ((1e-16, 1e16), ) * 1
+                self.param = self.nominal
 
-            # policy optimization
-            res = sc.optimize.minimize(self.policy_dual, alpha_init,
-                                       method='L-BFGS-B', jac=True,
-                                       bounds=alpha_bounds,
-                                       options={'disp': False, 'maxiter': 100000,
-                                                'ftol': 1e-12, 'iprint': 99})
-            self.alpha = res.x
+            param_nom_kl = np.sum(self.parameter_nominal_kldiv(self.param))
 
-            # re-compute after opt.
-            policy_agcost = self.policy_augment_cost(self.alpha)
-            lgc, xvalue, xuvalue, diverge = self.policy_backward_pass(self.alpha, policy_agcost)
-            worst_xdist, worst_udist, worst_xudist = self.cubature_forward_pass(lgc, self.param)
+            lgc, worst_xdist, xvalue, xuvalue, alpha = self.policy_optimization(self.param)
 
-            # check kl constraint
+            # check policy kl constraint
             policy_kl = self.policy_kldiv(lgc, worst_xdist)
-            if not self.kl_stepwise:
+            if not self.policy_kl_stepwise:
                 policy_kl = np.sum(policy_kl)
 
             if np.all((policy_kl - self.policy_kl_bound) < 0.25 * self.policy_kl_bound) \
                     or np.all(policy_kl < self.policy_kl_bound):
+
+                # update alpha
+                self.alpha = alpha
+
                 # update controller
                 self.ctl = lgc
 
@@ -675,30 +760,27 @@ class LRGPS:
                 self.xdist, self.udist, self.xudist = self.cubature_forward_pass(self.ctl, self.param)
 
                 # trajectory return
-                _return = self.cost.evaluate(self.xdist, self.udist)
+                cost = self.cost.evaluate(self.xdist, self.udist)
 
                 # get quadratic cost around mean traj.
                 self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
                 # mean objective under last dists.
-                _trace.append(_return)
-
-                # update last return to current
-                self.last_return = _return
+                trace.append(cost)
 
                 if verbose:
                     if iter == 0:
                         print("%9s %8s %7s %8s %8s" % ("", "param_kl", "", "policy_kl", ""))
                         print("%6s %6s %6s %2s %6s %6s %12s" % ("iter", "req.", "act.", "", "req.", "act.", "return"))
-                    print("%6i %.1e %.1e %6.2f %6.2f %12.2f" % (iter, self.param_kl_bound, param_kl,
+                    print("%6i %.1e %.1e %6.2f %6.2f %12.2f" % (iter, self.param_nominal_kl_bound, param_nom_kl,
                                                                 np.sum(self.policy_kl_bound), np.sum(policy_kl),
-                                                                _return))
+                                                                cost))
             else:
                 print("Something is wrong, KL not satisfied: ", "req", np.sum(self.policy_kl_bound),
                                                                 "act.", np.sum(policy_kl))
-                if self.kl_stepwise:
+                if self.policy_kl_stepwise:
                     self.alpha = 1e8 * np.ones((self.nb_steps,))
                 else:
                     self.alpha = 1e8 * np.ones((1,))
 
-        return _trace
+        return trace

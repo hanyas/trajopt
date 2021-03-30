@@ -1,6 +1,9 @@
 import autograd.numpy as np
 from autograd import jacobian, hessian
 
+
+from mimo.distributions import MatrixNormalWishart
+from mimo.distributions import LinearGaussianWithMatrixNormalWishart
 from mimo.distributions import MatrixNormalWithKnownPrecision
 from mimo.distributions import LinearGaussianWithMatrixNormal
 from mimo.distributions import LinearGaussianWithKnownPrecision
@@ -175,6 +178,114 @@ class AnalyticalQuadraticCost(QuadraticCost):
                               - 2. * x[..., t].T @ self.Cxu[..., t] @ _u[..., t]\
                               - self.cx[..., t].T @ x[..., t]\
                               - self.cu[..., t].T @ _u[..., t]
+
+
+class LinearGaussianDynamics:
+    def __init__(self, dm_state, dm_act, nb_steps):
+        self.dm_state = dm_state
+        self.dm_act = dm_act
+        self.nb_steps = nb_steps
+
+        self.A = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        self.B = np.zeros((self.dm_state, self.dm_act, self.nb_steps))
+        self.c = np.zeros((self.dm_state, self.nb_steps))
+        self.sigma = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        for t in range(self.nb_steps):
+            self.sigma[..., t] = 1e-8 * np.eye(self.dm_state)
+
+    @property
+    def params(self):
+        return self.A, self.B, self.c, self.sigma
+
+    @params.setter
+    def params(self, values):
+        self.A, self.B, self.c, self.sigma = values
+
+    def sample(self, x, u):
+        pass
+
+
+class AnalyticalLinearGaussianDynamics(LinearGaussianDynamics):
+    def __init__(self, f_dyn, noise, dm_state, dm_act, nb_steps):
+        super(AnalyticalLinearGaussianDynamics, self).__init__(dm_state, dm_act, nb_steps)
+
+        self.f = f_dyn
+        self.noise = noise
+
+        self.dfdx = jacobian(self.f, 0)
+        self.dfdu = jacobian(self.f, 1)
+
+    def evalf(self, x, u):
+        return self.f(x, u)
+
+    def taylor_expansion(self, x, u):
+        A = self.dfdx(x, u)
+        B = self.dfdu(x, u)
+        # residual of taylor expansion
+        c = self.evalf(x, u) - A @ x - B @ u
+        sigma = self.noise(x, u)
+        return A, B, c, sigma
+
+    def extended_kalman(self, init_state, lgc, ulim):
+        lgd = LinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps)
+
+        xdist = Gaussian(self.dm_state, self.nb_steps + 1)
+        udist = Gaussian(self.dm_act, self.nb_steps)
+
+        # forward propagation of mean dynamics
+        xdist.mu[..., 0], xdist.sigma[..., 0] = init_state
+        for t in range(self.nb_steps):
+            udist.mu[..., t] = np.clip(lgc.K[..., t] @ xdist.mu[..., t] + lgc.kff[..., t], -ulim, ulim)
+            xdist.mu[..., t + 1] = self.evalf(xdist.mu[..., t], udist.mu[..., t])
+
+        for t in range(self.nb_steps):
+            lgd.A[..., t], lgd.B[..., t], lgd.c[..., t], lgd.sigma[..., t] =\
+                self.taylor_expansion(xdist.mu[..., t], udist.mu[..., t])
+
+            # construct variace of next time step with extend Kalman filtering
+            mu_x, sigma_x = xdist.mu[..., t], xdist.sigma[..., t]
+            K, kff, ctl_sigma = lgc.K[..., t], lgc.kff[..., t], lgc.sigma[..., t]
+
+            # propagate variance of action dist.
+            u_sigma = ctl_sigma + K @ sigma_x @ K.T
+            u_sigma = 0.5 * (u_sigma + u_sigma.T)
+            udist.sigma[..., t] = u_sigma
+
+            AB = np.hstack((lgd.A[..., t], lgd.B[..., t]))
+            sigma_xu = np.vstack((np.hstack((sigma_x, sigma_x @ K.T)),
+                                  np.hstack((K @ sigma_x, u_sigma))))
+
+            sigma_xn = lgd.sigma[..., t] + AB @ sigma_xu @ AB.T
+            sigma_xn = 0.5 * (sigma_xn + sigma_xn.T)
+            xdist.sigma[..., t + 1] = sigma_xn
+
+        return xdist, udist, lgd
+
+
+class LearnedProbabilisticLinearDynamics(MatrixNormalParameters):
+    def __init__(self, dm_state, dm_act, nb_steps, prior):
+        super(LearnedProbabilisticLinearDynamics, self).__init__(dm_state, dm_act, nb_steps)
+
+        hypparams = dict(M=np.zeros((self.dm_state, self.dm_state + self.dm_act + 1)),
+                         K=prior['K'] * np.eye(self.dm_state + self.dm_act + 1),
+                         psi=prior['psi'] * np.eye(self.dm_state),
+                         nu=self.dm_state + prior['nu'])
+        self.prior = MatrixNormalWishart(**hypparams)
+
+    def learn(self, data):
+        noise = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
+        for t in range(self.nb_steps):
+            input = np.hstack((data['x'][:, t, :].T, data['u'][:, t, :].T))
+            target = data['xn'][:, t, :].T
+
+            model = LinearGaussianWithMatrixNormalWishart(self.prior, affine=True)
+            model = model.meanfield_update(y=target, x=input)
+
+            self.mu[..., t] = np.reshape(model.posterior.matnorm.M, self.mu[..., t].shape, order='F')
+            self.sigma[..., t] = np.linalg.inv(np.kron(model.posterior.matnorm.K, model.posterior.wishart.mode()))
+            noise[..., t] = np.linalg.inv(model.posterior.wishart.mode())
+
+        return noise
 
 
 class LearnedProbabilisticLinearDynamicsWithKnownNoise(MatrixNormalParameters):

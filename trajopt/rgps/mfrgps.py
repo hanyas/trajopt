@@ -10,9 +10,11 @@ from trajopt.rgps.objects import AnalyticalQuadraticCost
 from trajopt.rgps.objects import QuadraticStateValue, QuadraticStateActionValue
 from trajopt.rgps.objects import LinearGaussianControl
 from trajopt.rgps.objects import LearnedProbabilisticLinearDynamicsWithKnownNoise
+from trajopt.rgps.objects import LearnedProbabilisticLinearDynamics
 from trajopt.rgps.objects import MatrixNormalParameters
 
 from trajopt.gps.objects import pass_alpha_as_vector
+from trajopt.gps.objects import pass_beta_as_vector
 
 from trajopt.rgps.core import policy_divergence
 from trajopt.rgps.core import gaussian_divergence
@@ -22,8 +24,6 @@ from trajopt.rgps.core import quad_expectation
 from trajopt.rgps.core import policy_augment_cost, policy_backward_pass
 from trajopt.rgps.core import parameter_augment_cost
 from trajopt.rgps.core import parameter_backward_pass
-from trajopt.rgps.core import parameter_dual_regularization
-from trajopt.rgps.core import regularized_parameter_backward_pass
 from trajopt.rgps.core import cubature_forward_pass
 
 import logging
@@ -47,7 +47,6 @@ class MFRGPS:
 
         # expose necessary functions
         self.env_dyn = self.env.unwrapped.dynamics
-        self.env_noise = self.env.unwrapped.sigma
         self.env_cost = self.env.unwrapped.cost
         self.env_init = init_state
 
@@ -73,7 +72,7 @@ class MFRGPS:
             self.alpha = 1e8 * np.ones((1, ))
 
         self.param_kl_bound = param_kl_bound
-        self.beta = np.array([1e16])
+        self.beta = np.array([1e8])
 
         # create state distribution and initialize first time step
         self.xdist = Gaussian(self.dm_state, self.nb_steps + 1)
@@ -85,14 +84,11 @@ class MFRGPS:
         self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        self.nominal = LearnedProbabilisticLinearDynamicsWithKnownNoise(self.dm_state, self.dm_act, self.nb_steps,
-                                                                        self.env_noise, prior)
+        self.nominal = LearnedProbabilisticLinearDynamics(self.dm_state, self.dm_act, self.nb_steps, prior)
+
         self.param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
 
-        # We assume process noise over dynamics is known
         self.noise = np.zeros((self.dm_state, self.dm_state, self.nb_steps))
-        for t in range(self.nb_steps):
-            self.noise[..., t] = self.env_noise
 
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
 
@@ -115,14 +111,19 @@ class MFRGPS:
 
         self.data = {}
 
-    def rollout(self, nb_episodes, stoch=True,
-                env=None, linearize=False, perturb=False):
+    def rollout(self, nb_episodes, stoch=True, env=None,
+                ctl=None, adversary=None):
         if env is None:
             env = self.env
             env_cost = self.env_cost
         else:
             env = env
             env_cost = env.unwrapped.cost
+
+        if ctl is None:
+            ctl = self.ctl
+        else:
+            ctl = ctl
 
         data = {'x': np.zeros((self.dm_state, self.nb_steps, nb_episodes)),
                 'u': np.zeros((self.dm_act, self.nb_steps, nb_episodes)),
@@ -133,7 +134,7 @@ class MFRGPS:
             x = env.reset()
 
             for t in range(self.nb_steps):
-                u = self.ctl.sample(x, t, stoch)
+                u = ctl.sample(x, t, stoch)
                 data['u'][..., t, n] = u
 
                 # expose true reward function
@@ -141,15 +142,12 @@ class MFRGPS:
                 data['c'][t] = c
 
                 data['x'][..., t, n] = x
-                if linearize:
-                    if perturb:
-                        dist = {'mu': self.param.mu[..., t],
-                                'sigma': self.param.sigma[..., t]}
-                        x, _, _, _ = env.evolve(u, dist)
-                    else:
-                        x, _, _, _ = env.evolve(u, None)
-                else:
+                if adversary is None:
                     x, _, _, _ = env.step(u)
+                else:
+                    adversary = {'mu': self.param.mu[..., t],
+                                 'sigma': self.param.sigma[..., t]}
+                    x, _, _, _ = env.evolve(u, adversary)
                 data['xn'][..., t, n] = x
 
             c = env_cost(x, np.zeros((self.dm_act, )),  np.zeros((self.dm_act, )), self.weighting[-1])
@@ -286,12 +284,14 @@ class MFRGPS:
                                  xdist.mu, xdist.sigma,
                                  self.dm_state, self.dm_act, self.nb_steps)
 
+    @pass_beta_as_vector
     def parameter_augment_cost(self, beta):
         agcost = QuadraticCost(self.dm_param, self.dm_param, self.nb_steps)
         agcost.Cxx, agcost.cx, agcost.c0 = parameter_augment_cost(self.nominal.mu, self.nominal.sigma,
                                                                   beta, self.dm_param, self.nb_steps)
         return agcost
 
+    @pass_beta_as_vector
     def parameter_backward_pass(self, beta, agcost, xdist):
         param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
         xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
@@ -323,7 +323,7 @@ class MFRGPS:
             return np.nan, np.nan
         p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
 
-        # conergence of inner loop
+        # convergence of inner loop
         xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
                                         q_xdist.mu, q_xdist.sigma,
                                         self.dm_state, self.nb_steps + 1)
@@ -353,93 +353,24 @@ class MFRGPS:
 
         return -1. * np.array([dual]), -1. * np.array([grad])
 
-    def parameter_dual_regularization(self, pdist, qdist, kappa):
-        regcost = QuadraticCost(self.dm_state, self.dm_state, self.nb_steps + 1)
-
-        regcost.Cxx, regcost.cx, regcost.c0 = parameter_dual_regularization(pdist.mu, pdist.sigma,
-                                                                            qdist.mu, qdist.sigma,
-                                                                            kappa, self.dm_state, self.nb_steps)
-        return regcost
-
-    def regularized_parameter_backward_pass(self, beta, agcost, xdist, regcost):
-        param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
-        xvalue = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
-
-        xvalue.V, xvalue.v, xvalue.v0,\
-        param.mu, param.sigma, diverge = regularized_parameter_backward_pass(xdist.mu, xdist.sigma,
-                                                                             self.ctl.K, self.ctl.kff, self.ctl.sigma, self.noise,
-                                                                             self.cost.cx, self.cost.Cxx, self.cost.Cuu,
-                                                                             self.cost.cu, self.cost.Cxu, self.cost.c0,
-                                                                             agcost.Cxx, agcost.cx, agcost.c0,
-                                                                             regcost.Cxx, regcost.cx, regcost.c0,
-                                                                             beta, self.dm_state, self.dm_act, self.dm_param,
-                                                                             self.nb_steps)
-        return param, xvalue, diverge
-
-    def regularized_parameter_dual(self, beta, kappa):
-        agcost = self.parameter_augment_cost(beta)
-
-        q_xdist = deepcopy(self.xdist)
-        # p_xdist = deepcopy(self.xdist)
-
-        param = MatrixNormalParameters(self.dm_state, self.dm_act, self.nb_steps)
-        p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
-
-        regcost = self.parameter_dual_regularization(p_xdist, q_xdist, kappa)
-        param, xvalue, diverge = self.regularized_parameter_backward_pass(beta, agcost, p_xdist, regcost)
-        if diverge != -1:
-            return np.nan, np.nan
-
-        # conergence of inner loop
-        xdist_kl = np.sum(self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma, q_xdist.mu, q_xdist.sigma))
-        while np.any(xdist_kl > 1e-3):
-            regcost = self.parameter_dual_regularization(p_xdist, q_xdist, kappa)
-            param, xvalue, diverge = self.regularized_parameter_backward_pass(beta, agcost, p_xdist, regcost)
-            if diverge != -1:
-                return np.nan, np.nan
-
-            q_xdist = deepcopy(p_xdist)
-            p_xdist, _, _ = self.cubature_forward_pass(self.ctl, param)
-
-            # check convergence of loop
-            xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
-                                            q_xdist.mu, q_xdist.sigma,
-                                            self.dm_state, self.nb_steps + 1)
-
-        # dual expectation
-        dual = quad_expectation(q_xdist.mu[..., 0], q_xdist.sigma[..., 0],
-                                xvalue.V[..., 0], xvalue.v[..., 0],
-                                xvalue.v0[..., 0])
-
-        dual += beta * (np.sum(self.parameter_kldiv(param)) - self.param_kl_bound)
-        dual -= kappa * xdist_kl
-
-        # dual gradient
-        grad = np.sum(self.parameter_kldiv(param)) - self.param_kl_bound
-
-        return -1. * np.array([dual]), -1. * np.array([grad])
-
-    def parameter_dual_optimization(self, beta, iters=10, regularized=False, kappa=None):
+    def parameter_dual_optimization(self, beta, iters=10):
         if regularized:
             assert kappa is not None
 
         min_beta, max_beta = 1e-4, 1e64
         best_beta = beta
 
-        best_dual, best_grad = np.inf, None
+        best_dual, best_grad = np.inf, np.inf
         for i in range(iters):
-            if regularized:
-                dual, grad = self.regularized_parameter_dual(beta, kappa)
-            else:
-                dual, grad = self.parameter_dual(beta)
+            dual, grad = self.parameter_dual(beta)
 
             if not np.isnan(dual) and not np.isnan(grad):
-                if dual < best_dual:
+                if grad < best_grad:
                     best_beta = beta
                     best_dual = dual
                     best_grad = grad
 
-                if abs(grad) < 0.1 * self.param_kl_bound:
+                if abs(grad) < 0.05 * self.param_kl_bound:
                     LOGGER.debug("Param KL: %.2e, Grad: %f, Beta: %f" % (self.param_kl_bound, grad, beta))
                     return beta, dual, grad
                 else:
@@ -453,7 +384,6 @@ class MFRGPS:
                         beta = np.sqrt(min_beta * max_beta)
                         LOGGER.debug("Param KL: %.1e, Grad: %2.3e, Beta too small, New Beta: %2.3e, Min. Beta: %2.3e, Max. Beta: %2.3e"
                                      % (self.param_kl_bound, grad, beta, min_beta, max_beta))
-
             else:
                 min_beta = beta
                 beta = np.sqrt(min_beta * max_beta)
@@ -523,44 +453,103 @@ class MFRGPS:
 
         return kl
 
-    def plot(self, xdist=None, udist=None):
-        xdist = self.xdist if xdist is None else xdist
-        udist = self.udist if udist is None else udist
+    def plot_distributions(self, xdist=None, udist=None, show=True,
+                           axs=None, xcolor='blue', ucolor='green'):
+        if xdist is None and udist is None:
+            xdist = self.xdist
+            udist = self.udist
 
         import matplotlib.pyplot as plt
 
-        plt.figure()
+        nb_plots = 0
+        if axs is None:
+            if xdist is not None:
+                nb_plots += self.dm_state
+            if udist is not None:
+                nb_plots += self.dm_act
+            _, axs = plt.subplots(nb_plots, figsize=(8, 12))
 
-        t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
-        for k in range(self.dm_state):
-            plt.subplot(self.dm_state + self.dm_act, 1, k + 1)
-            plt.plot(t, xdist.mu[k, :], '-b')
-            lb = xdist.mu[k, :] - 2. * np.sqrt(xdist.sigma[k, k, :])
-            ub = xdist.mu[k, :] + 2. * np.sqrt(xdist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='blue', alpha=0.1)
+        if xdist is not None:
+            for k in range(self.dm_state):
+                t = np.linspace(0, self.nb_steps, self.nb_steps + 1)
+                axs[k].plot(t, xdist.mu[k, :], xcolor)
+                lb = xdist.mu[k, :] - 2. * np.sqrt(xdist.sigma[k, k, :])
+                ub = xdist.mu[k, :] + 2. * np.sqrt(xdist.sigma[k, k, :])
+                axs[k].fill_between(t, lb, ub, color=xcolor, alpha=0.1)
 
-        t = np.linspace(0, self.nb_steps, self.nb_steps)
-        for k in range(self.dm_act):
-            plt.subplot(self.dm_state + self.dm_act, 1, self.dm_state + k + 1)
-            plt.plot(t, udist.mu[k, :], '-g')
-            lb = udist.mu[k, :] - 2. * np.sqrt(udist.sigma[k, k, :])
-            ub = udist.mu[k, :] + 2. * np.sqrt(udist.sigma[k, k, :])
-            plt.fill_between(t, lb, ub, color='green', alpha=0.1)
+        if udist is not None:
+            for k in range(self.dm_act):
+                t = np.linspace(0, self.nb_steps - 1, self.nb_steps)
+                axs[self.dm_state + k].plot(t, udist.mu[k, :], ucolor)
+                lb = udist.mu[k, :] - 2. * np.sqrt(udist.sigma[k, k, :])
+                ub = udist.mu[k, :] + 2. * np.sqrt(udist.sigma[k, k, :])
+                axs[self.dm_state + k].fill_between(t, lb, ub, color=ucolor, alpha=0.1)
 
-        plt.show()
+        if show:
+            plt.show()
+
+        return axs
+
+    def plot_data(self, type='raw', axs=None, show=True):
+        import matplotlib.pyplot as plt
+
+        if axs is None:
+            nb_plots = self.dm_state + self.dm_act
+            _, axs = plt.subplots(nb_plots, figsize=(8, 12))
+
+        if type == 'raw':
+            for k in range(self.dm_state):
+                axs[k].plot(self.data['x'][k, ...])
+
+            for k in range(self.dm_act):
+                axs[self.dm_state + k].plot(self.data['u'][k, ...])
+        elif type == 'dist':
+            from mimo.distributions import GaussianWithPrecision
+
+            dist = GaussianWithPrecision(mu=np.zeros((1, )))
+            for k in range(self.dm_state):
+                mus, sigmas = np.zeros((self.nb_steps, )), np.zeros((self.nb_steps, ))
+                for t in range(self.nb_steps):
+                    dist.max_likelihood(self.data['x'][k, t, :][:, None])
+                    mus[t], sigmas[t] = dist.mu, dist.sigma
+
+                t = np.linspace(0, self.nb_steps - 1, self.nb_steps)
+
+                axs[k].plot(t, mus, color='k')
+                lb = mus - 2. * np.sqrt(sigmas)
+                ub = mus + 2. * np.sqrt(sigmas)
+                axs[k].fill_between(t, lb, ub, color='k', alpha=0.1)
+
+            dist = GaussianWithPrecision(mu=np.zeros((1, )))
+            for k in range(self.dm_act):
+                mus, sigmas = np.zeros((self.nb_steps, )), np.zeros((self.nb_steps, ))
+                for t in range(self.nb_steps):
+                    dist.max_likelihood(self.data['u'][k, t, :][:, None])
+                    mus[t], sigmas[t] = dist.mu, dist.sigma
+
+                t = np.linspace(0, self.nb_steps - 1, self.nb_steps)
+
+                axs[self.dm_state + k].plot(t, mus, color='k')
+                lb = mus - 2. * np.sqrt(sigmas)
+                ub = mus + 2. * np.sqrt(sigmas)
+                axs[self.dm_state + k].fill_between(t, lb, ub, color='k', alpha=0.1)
+
+        if show:
+            plt.show()
+
+        return axs
 
     def run(self, nb_learning_episodes,
-            nb_evaluation_episodes, nb_iter=10,
+            nb_evaluation_episodes=None, nb_iter=10,
             verbose=False, debug_dual=False):
 
         _trace = []
 
         # run init controller
-        self.data = self.rollout(nb_learning_episodes, perturb=False)
-        eval = self.rollout(nb_evaluation_episodes, perturb=False)
+        self.data = self.rollout(nb_learning_episodes)
 
         # leanr posterior over dynamics
-        self.nominal.learn(self.data)
+        self.noise = self.nominal.learn(self.data)
 
         # current state distribution
         self.xdist, self.udist, self.xudist = self.cubature_forward_pass(self.ctl, self.nominal)
@@ -569,12 +558,18 @@ class MFRGPS:
         self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
         # mean objective under current ctrl.
-        self.last_return = np.mean(np.sum(eval['c'], axis=0))
+        if nb_evaluation_episodes is not None:
+            eval = self.rollout(nb_evaluation_episodes, stoch=False)
+            self.last_return = np.mean(np.sum(eval['c'], axis=0))
+            # self.last_return = np.percentile(np.sum(eval['c'], axis=0), q=90)
+        else:
+            self.last_return = np.mean(np.sum(self.data['c'], axis=0))
+            # self.last_return = np.percentile(np.sum(self.data['c'], axis=0), q=90)
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
             # worst-case parameter optimization
-            self.beta, _, _ = self.parameter_dual_optimization(self.beta, iters=50)
+            self.beta, _, _ = self.parameter_dual_optimization(self.beta, iters=100)
 
             agcost = self.parameter_augment_cost(self.beta)
 
@@ -589,7 +584,7 @@ class MFRGPS:
             self.param, _, _ = self.parameter_backward_pass(self.beta, agcost, q_xdist)
             p_xdist, _, _ = self.cubature_forward_pass(self.ctl, self.param)
 
-            # conergence of inner loop
+            # convergence of inner loop
             xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
                                             q_xdist.mu, q_xdist.sigma,
                                             self.dm_state, self.nb_steps + 1)
@@ -597,7 +592,6 @@ class MFRGPS:
                 self.param, _, _ = self.parameter_backward_pass(self.beta, agcost, q_xdist)
                 p_xdist, _, _ = self.cubature_forward_pass(self.ctl, self.param)
 
-                # check convergence of loop
                 # check convergence of loop
                 xdist_kl = self.gaussians_kldiv(p_xdist.mu, p_xdist.sigma,
                                                 q_xdist.mu, q_xdist.sigma,
@@ -638,6 +632,10 @@ class MFRGPS:
             worst_xdist, worst_udist, worst_xudist = self.cubature_forward_pass(lgc, self.param)
             nominal_xdist, nominal_udist, nominal_xudist = self.cubature_forward_pass(lgc, self.nominal)
 
+            # axs = self.plot_distributions(xdist=worst_xdist, udist=worst_udist, show=False)
+            # axs = self.plot_distributions(xdist=nominal_xdist, udist=nominal_udist,
+            #                               axs=axs, xcolor='red', ucolor='magenta', show=False)
+
             _expected_worst_return = self.cost.evaluate(worst_xdist, worst_udist)
             _expected_nominal_return = self.cost.evaluate(nominal_xdist, nominal_udist)
 
@@ -655,18 +653,23 @@ class MFRGPS:
                 self.vfunc, self.qfunc = xvalue, xuvalue
 
                 # run current controller
-                self.data = self.rollout(nb_learning_episodes, perturb=False)
-                eval = self.rollout(nb_evaluation_episodes, perturb=False)
+                self.data = self.rollout(nb_learning_episodes)
+                if nb_evaluation_episodes is not None:
+                    eval = self.rollout(nb_evaluation_episodes, stoch=False)
+                    _actual_return = np.mean(np.sum(eval['c'], axis=0))
+                    # _actual_return = np.percentile(np.sum(eval['c'], axis=0), q=90)
+                else:
+                    _actual_return = np.mean(np.sum(self.data['c'], axis=0))
+                    # _actual_return = np.percentile(np.sum(self.data['c'], axis=0), q=90)
 
-                # current return
-                _actual_return = np.mean(np.sum(eval['c'], axis=0))
+                # axs = self.plot_data(type='dist', axs=axs)
 
                 # expected vs actual improvement
                 _expected_worst_imp = self.last_return - _expected_worst_return
                 _actual_imp = self.last_return - _actual_return
 
                 # leanr posterior over dynamics
-                self.nominal.learn(self.data)
+                self.noise = self.nominal.learn(self.data)
 
                 # current state distribution
                 self.xdist, self.udist, self.xudist = self.cubature_forward_pass(self.ctl, self.param)
@@ -718,16 +721,16 @@ class MFRGPS:
         obj, grad = zip(*[dual_fun(val) for val in values])
         obj, grad = np.hstack(obj), np.hstack(grad)
 
-        ax1.plot(values, obj, 'b')
+        ax1.plot_distributions(values, obj, 'b')
         ax1.set_ylabel("objective", color='b')
         ax1.set_xlabel("alpha")
         ax1.axvline(opt, color='k', ls="--")
 
         ax2 = ax1.twinx()
         ax2.set_ylabel("gradient", color='r')
-        ax2.plot(values, grad, 'r')
+        ax2.plot_distributions(values, grad, 'r')
         if numdiff:
-            ax2.plot(values, grad_fdiff, 'r--')
+            ax2.plot_distributions(values, grad_fdiff, 'r--')
         ax2.axhline(0, color='k')
 
         plt.show()
