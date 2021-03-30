@@ -1,8 +1,7 @@
-import numpy as np
+import autograd.numpy as np
 
 import gym
-
-from trajopt.rgps import LRGPS
+from trajopt.rgps import MBRGPS
 
 from matplotlib import rc
 import matplotlib.pyplot as plt
@@ -21,7 +20,7 @@ def beautify(ax):
     ax.minorticks_on()
 
     ax.grid(True)
-    ax.grid(linestyle='--')
+    ax.grid(linestyle=':')
 
     ax.tick_params(which='both', direction='in',
                    bottom=True, labelbottom=True,
@@ -41,56 +40,59 @@ def beautify(ax):
     return ax
 
 
-# lqr task
-env = gym.make('LQR-TO-v1')
-env.env._max_episode_steps = 75
-env.env.sigma0 = 1e-2 * np.eye(2)
-env.env.sigma = 1e-4 * np.eye(2)
+# pendulum task
+env = gym.make('Robot-TO-v0')
+env._max_episode_steps = 100
 
 np.random.seed(1337)
 env.seed(1337)
 
-rgps = LRGPS(env, nb_steps=75,
-             policy_kl_bound=0.25,
-             param_nominal_kl_bound=75e1,
-             param_regularizer_kl_bound=10,
+rgps = MBRGPS(env, nb_steps=100,
+              init_state=env.init(),
+              policy_kl_bound=0.25,
+              param_nominal_kl_bound=5e2,
+              param_regularizer_kl_bound=10,
+              init_action_sigma=0.1,
+              action_penalty=1e-1,
+              nominal_variance=1e-6)
+rgps.run(nb_iter=900, verbose=True)
+
+np.random.seed(1337)
+env.seed(1337)
+
+gps = MBRGPS(env, nb_steps=100,
              init_state=env.init(),
-             init_action_sigma=100.)
-rgps.run(nb_iter=100, verbose=True)
-
-np.random.seed(1337)
-env.seed(1337)
-
-gps = LRGPS(env, nb_steps=75,
-            policy_kl_bound=0.25,
-            param_nominal_kl_bound=75e1,
-            param_regularizer_kl_bound=10,
-            init_state=env.init(),
-            init_action_sigma=100.)
-gps.run(nb_iter=100, verbose=True,
+             policy_kl_bound=.25,
+             param_nominal_kl_bound=5e2,
+             param_regularizer_kl_bound=10,
+             init_action_sigma=0.1,
+             action_penalty=1e-1,
+             nominal_variance=1e-6)
+gps.run(nb_iter=50, verbose=True,
         optimize_adversary=False)
 
 # compute attack on final standard controller
+gps.param_nominal_kl_bound = np.array([1e3])
 gps.param, gps.eta = gps.reguarlized_parameter_optimization(gps.ctl)
 print("Disturbance KL:", gps.parameter_nominal_kldiv(gps.param).sum())
 
 fig = plt.figure(figsize=(6, 12))
 plt.suptitle("Standard vs Robust Ctl: Feedback Controller")
-for i in range(rgps.dm_state):
-    plt.subplot(rgps.dm_state + rgps.dm_act, 1, i + 1)
-    plt.plot(rgps.ctl.K[0, i, ...], color='r', marker='x', markersize=2)
+for i in range(gps.dm_state):
+    plt.subplot(gps.dm_state + gps.dm_act, 1, i + 1)
     plt.plot(gps.ctl.K[0, i, ...], color='b', marker='o', markersize=2)
+    plt.plot(rgps.ctl.K[0, i, ...], color='r', marker='x', markersize=2)
 
-for i in range(rgps.dm_act):
-    plt.subplot(rgps.dm_state + rgps.dm_act, 1, rgps.dm_state + i + 1)
-    plt.plot(rgps.ctl.kff[i, ...], color='r', marker='x', markersize=2)
+for i in range(gps.dm_act):
+    plt.subplot(gps.dm_state + gps.dm_act, 1, gps.dm_state + i + 1)
     plt.plot(gps.ctl.kff[i, ...], color='b', marker='o', markersize=2)
+    plt.plot(rgps.ctl.kff[i, ...], color='r', marker='x', markersize=2)
 
 axs = fig.get_axes()
 axs = [beautify(ax) for ax in axs]
 plt.show()
 
-tikzplotlib.save("linear_feedback_gains.tex")
+# tikzplotlib.save("robot_feedback_gains.tex")
 
 std_xdist, std_udist, _ = gps.cubature_forward_pass(gps.ctl, gps.nominal)
 robust_xdist, robust_udist, _ = rgps.cubature_forward_pass(rgps.ctl, rgps.nominal)
@@ -102,13 +104,14 @@ print("Expected Cost of Standard and Robust Control on Nominal Env")
 print("Std. Ctl.: ", cost_nom_env_std_ctl, "Rbst. Ctl.", cost_nom_env_rbst_ctl)
 
 std_worst_xdist, std_worst_udist, _ = gps.cubature_forward_pass(gps.ctl, gps.param)
-robust_worst_xdist, robust_worst_udist, _ = rgps.cubature_forward_pass(rgps.ctl, gps.param)
+robust_worst_xdist, robust_worst_udist, _ = rgps.cubature_forward_pass(rgps.ctl, rgps.param)
 
 cost_adv_env_std_ctl = gps.cost.evaluate(std_worst_xdist, std_worst_udist)
 cost_adv_env_rbst_ctl = rgps.cost.evaluate(robust_worst_xdist, robust_worst_udist)
 
 print("Expected Cost of Standard and Robust Control on Adverserial Env")
 print("Std. Ctl.: ", cost_adv_env_std_ctl, "Rbst. Ctl.", cost_adv_env_rbst_ctl)
+
 
 fig = plt.figure()
 plt.suptitle('Standard and Robust Control Without Adversary')
@@ -156,7 +159,7 @@ axs = fig.get_axes()
 axs = [beautify(ax) for ax in axs]
 plt.show()
 
-# tikzplotlib.save("linear_trajectories_nominal.tex")
+# tikzplotlib.save("robot_trajectories_nominal.tex")
 
 fig = plt.figure()
 plt.suptitle('Standard and Robust Control With Adversary')
@@ -204,7 +207,7 @@ axs = fig.get_axes()
 axs = [beautify(ax) for ax in axs]
 plt.show()
 
-# tikzplotlib.save("linear_trajectories_adversarial.tex")
+# tikzplotlib.save("robot_trajectories_adversarial.tex")
 
 from trajopt.rgps.objects import MatrixNormalParameters
 interp = MatrixNormalParameters(rgps.dm_state, rgps.dm_act, rgps.nb_steps)
@@ -234,19 +237,19 @@ for alpha in alphas:
 
 fig = plt.figure()
 plt.plot(kl_distance, cost_adv_env_std_ctl, 'b', marker='o')
-plt.xscale('log')
+# plt.xscale('log')
 plt.yscale('log')
 plt.plot(kl_distance, cost_adv_env_rbst_ctl, 'r', marker='*')
-plt.xscale('log')
+# plt.xscale('log')
 plt.yscale('log')
 
 axs = fig.gca()
 axs = beautify(axs)
 plt.show()
 
-# tikzplotlib.save("linear_cost_over_distance.tex")
+# tikzplotlib.save("robot_cost_over_distance.tex")
 
-kl_over_time = rgps.parameter_nominal_kldiv(gps.param)
+kl_over_time = gps.parameter_nominal_kldiv(gps.param)
 
 fig = plt.figure()
 plt.plot(kl_over_time, 'k', marker='.')
@@ -256,4 +259,4 @@ axs = fig.gca()
 axs = beautify(axs)
 plt.show()
 
-# tikzplotlib.save("linear_kl_over_time.tex")
+# tikzplotlib.save("robot_kl_over_time.tex")
