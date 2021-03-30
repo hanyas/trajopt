@@ -5,7 +5,7 @@ from gym.utils import seeding
 import autograd.numpy as np
 
 
-class LQRv1(gym.Env):
+class LQRv2(gym.Env):
 
     def __init__(self):
         self.dm_state = 2
@@ -13,18 +13,16 @@ class LQRv1(gym.Env):
 
         self.dt = 0.01
 
-        self.x0 = np.array([0., 0.])
+        self.x0 = np.array([5., 5.])
         self.g = np.array([1., 0.])
 
-        self.gw = np.array([1e2, 1e0])
+        self.gw = np.array([1e1, 1e0])
         self.uw = np.array([1e-3])
 
-        m, k, d = 1., 1e-2, 1e-1
-        self.A = np.array([[0.     , 1e0   ],
-                           [- k / m, - d / m]]) * self.dt + np.eye(self.dm_state)
-
-        self.B = np.array([[0.], [1. / m]]) * self.dt
-        self.c = np.array([0., 0.]) * self.dt
+        self.A = np.array([[1.0, 0.],
+                           [0.1, 1.1]])
+        self.B = np.array([[0.05], [0.]])
+        self.c = np.array([0., 0.])
 
         self.umax = np.inf
         self.action_space = spaces.Box(low=-self.umax,
@@ -34,14 +32,13 @@ class LQRv1(gym.Env):
         self.observation_space = spaces.Box(low=-self.xmax,
                                             high=self.xmax)
 
-        self.sigma0 = 1e-4 * np.eye(self.dm_state)
+        self.sigma0 = 1e-2 * np.eye(self.dm_state)
         self.sigma = 1e-8 * np.eye(self.dm_state)
 
         self.state = None
         self.np_random = None
 
         self.seed()
-        self.reset()
 
     @property
     def xlim(self):

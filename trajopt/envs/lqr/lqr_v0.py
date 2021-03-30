@@ -50,16 +50,18 @@ class LQRv0(gym.Env):
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
-        def f(x, u):
-            return self.A @ x + self.B @ u + self.c
+        xn = self.A @ x + self.B @ _u + self.c
 
-        k1 = f(x, _u)
-        k2 = f(x + 0.5 * self.dt * k1, _u)
-        k3 = f(x + 0.5 * self.dt * k2, _u)
-        k4 = f(x + self.dt * k3, _u)
-
-        xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
-        xn = np.clip(xn, -self.xlim, self.xlim)
+        # def f(x, u):
+        #     return self.A @ x + self.B @ u + self.c
+        #
+        # k1 = f(x, _u)
+        # k2 = f(x + 0.5 * self.dt * k1, _u)
+        # k3 = f(x + 0.5 * self.dt * k2, _u)
+        # k4 = f(x + self.dt * k3, _u)
+        #
+        # xn = x + self.dt / 6. * (k1 + 2. * k2 + 2. * k3 + k4)
+        # xn = np.clip(xn, -self.xlim, self.xlim)
 
         return xn
 

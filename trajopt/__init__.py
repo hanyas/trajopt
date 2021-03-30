@@ -13,6 +13,18 @@ register(
 )
 
 register(
+    id='LQR-TO-v2',
+    entry_point='trajopt.envs:LQRv2',
+    max_episode_steps=1000,
+)
+
+register(
+    id='Robot-TO-v0',
+    entry_point='trajopt.envs:Robot',
+    max_episode_steps=1000,
+)
+
+register(
     id='Pendulum-TO-v0',
     entry_point='trajopt.envs:Pendulum',
     max_episode_steps=1000,
