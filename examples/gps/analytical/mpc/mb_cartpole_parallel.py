@@ -60,11 +60,11 @@ obs, act = parallel_gps(nb_jobs=12)
 
 fig, ax = plt.subplots(nrows=5, ncols=1, figsize=(12, 4))
 for _obs, _act in zip(obs, act):
-    ax[0].plot(_obs[:, 0])
-    ax[1].plot(_obs[:, 1])
-    ax[2].plot(_obs[:, 2])
-    ax[3].plot(_obs[:, 3])
-    ax[4].plot(_act)
+    ax[0].plot_distributions(_obs[:, 0])
+    ax[1].plot_distributions(_obs[:, 1])
+    ax[2].plot_distributions(_obs[:, 2])
+    ax[3].plot_distributions(_obs[:, 3])
+    ax[4].plot_distributions(_act)
 plt.show()
 
 # import pickle

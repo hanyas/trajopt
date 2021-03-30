@@ -26,7 +26,7 @@ solver = MFGPS(env, nb_steps=100,
                kl_bound=1e1,
                slew_rate=False,
                action_penalty=1,
-               dyn_prior=prior,
+               prior=prior,
                activation={'mult': 1., 'shift': 80})
 
 # run gps

@@ -17,21 +17,19 @@ env.unwrapped.dt = 0.05
 
 env.seed(1337)
 
-# prior = {'K': 1e-6, 'psi': 1e8, 'nu': 0.1}
-prior = {'K': 1e-6}
+prior = {'K': 1e-6, 'psi': 1e6, 'nu': 0.1}
+# prior = {'K': 1e-6}
 
 solver = MFGPS(env, nb_steps=100,
                init_state=env.init(),
-               init_action_sigma=5.0,
+               init_action_sigma=0.1,
                kl_bound=1e0,
-               slew_rate=False,
                action_penalty=1e-3,
-               dyn_prior=prior,
+               prior=prior,
                activation={'mult': 1., 'shift': 80})
 
 # run gps
 trace = solver.run(nb_learning_episodes=25,
-                   nb_evaluation_episodes=25,
                    nb_iter=50, verbose=True)
 
 # execute and plot

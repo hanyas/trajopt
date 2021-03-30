@@ -21,7 +21,7 @@ class MFGPS:
                  kl_bound=0.1, kl_adaptive=False,
                  kl_stepwise=False, activation=None,
                  slew_rate=False, action_penalty=None,
-                 dyn_prior=None):
+                 prior=None):
 
         self.env = env
 
@@ -68,9 +68,9 @@ class MFGPS:
         self.vfunc = QuadraticStateValue(self.dm_state, self.nb_steps + 1)
         self.qfunc = QuadraticStateActionValue(self.dm_state, self.dm_act, self.nb_steps)
 
-        # self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps, dyn_prior)
-        self.dyn = LearnedLinearGaussianDynamicsWithKnownNoise(self.dm_state, self.dm_act, self.nb_steps,
-                                                               self.env_noise, dyn_prior)
+        self.dyn = LearnedLinearGaussianDynamics(self.dm_state, self.dm_act, self.nb_steps, prior)
+        # self.dyn = LearnedLinearGaussianDynamicsWithKnownNoise(self.dm_state, self.dm_act, self.nb_steps,
+        #                                                        self.env_noise, prior)
         self.ctl = LinearGaussianControl(self.dm_state, self.dm_act, self.nb_steps, init_action_sigma)
 
         # activation of cost function in shape of sigmoid
@@ -187,7 +187,7 @@ class MFGPS:
                              xdist.mu, xdist.sigma,
                              self.dm_state, self.dm_act, self.nb_steps)
 
-    def plot(self):
+    def plot_distributions(self):
         import matplotlib.pyplot as plt
 
         plt.figure()
@@ -210,14 +210,27 @@ class MFGPS:
 
         plt.show()
 
+    def plot_data(self):
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        for k in range(self.dm_state):
+            plt.subplot(self.dm_state + self.dm_act, 1, k + 1)
+            plt.plot(self.data['x'][k, ...])
+
+        for k in range(self.dm_act):
+            plt.subplot(self.dm_state + self.dm_act, 1, self.dm_state + k + 1)
+            plt.plot(self.data['u'][k, ...])
+
+        plt.show()
+
     def run(self, nb_learning_episodes,
-            nb_evaluation_episodes, nb_iter=10,
+            nb_evaluation_episodes=None, nb_iter=10,
             verbose=False):
         _trace = []
 
         # run init controller
         self.data = self.rollout(nb_learning_episodes)
-        eval = self.rollout(nb_evaluation_episodes)
 
         # fit time-variant linear dynamics
         self.dyn.learn(self.data)
@@ -229,7 +242,11 @@ class MFGPS:
         self.cost.taylor_expansion(self.xdist.mu, self.udist.mu, self.weighting)
 
         # mean objective under current ctrl.
-        self.last_return = np.mean(np.sum(eval['c'], axis=0))
+        if nb_evaluation_episodes is not None:
+            eval = self.rollout(nb_evaluation_episodes, stoch=False)
+            self.last_return = np.mean(np.sum(eval['c'], axis=0))
+        else:
+            self.last_return = np.mean(np.sum(self.data['c'], axis=0))
         _trace.append(self.last_return)
 
         for iter in range(nb_iter):
@@ -244,7 +261,7 @@ class MFGPS:
                                        method='SLSQP',
                                        jac=True,
                                        bounds=bounds,
-                                       options={'disp': False, 'maxiter': 10000,
+                                       options={'disp': False, 'maxiter': 100000,
                                                 'ftol': 1e-6})
             self.alpha = res.x
 
@@ -261,7 +278,8 @@ class MFGPS:
             if not self.kl_stepwise:
                 kl = np.sum(kl)
 
-            if np.all(np.abs(kl - self.kl_bound) < 0.25 * self.kl_bound):
+            if np.all((kl - self.kl_bound) < 0.25 * self.kl_bound) \
+                    or np.all(kl < self.kl_bound):
                 # update controller
                 self.ctl = lgc
 
@@ -270,10 +288,11 @@ class MFGPS:
 
                 # run current controller
                 self.data = self.rollout(nb_learning_episodes)
-                eval = self.rollout(nb_evaluation_episodes)
-
-                # current return
-                _return = np.mean(np.sum(eval['c'], axis=0))
+                if nb_evaluation_episodes is not None:
+                    eval = self.rollout(nb_evaluation_episodes, stoch=False)
+                    _return = np.mean(np.sum(eval['c'], axis=0))
+                else:
+                    _return = np.mean(np.sum(self.data['c'], axis=0))
 
                 # expected vs actual improvement
                 _expected_imp = self.last_return - _expected_return
