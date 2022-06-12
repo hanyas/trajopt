@@ -3,11 +3,11 @@ project(core)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/")
 
-set(ARMADILLO_LIBRARY "$ENV{HOME}/phd/libs/armadillo/")
+set(ARMADILLO_LIBRARY "$ENV{HOME}/libs/armadillo/")
 include_directories(${ARMADILLO_LIBRARY}/include)
 
 find_package(pybind11)
 pybind11_add_module(core src/util.cpp)
 
-set(OPENBLAS_LIBRARY "$ENV{HOME}/phd/libs/OpenBLAS/")
+set(OPENBLAS_LIBRARY "$ENV{HOME}/libs/OpenBLAS/")
 target_link_libraries(core PRIVATE ${OPENBLAS_LIBRARY}/libopenblas.a pthread gfortran)
