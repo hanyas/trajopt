@@ -21,32 +21,83 @@ class Gaussian:
     def params(self, values):
         self.mu, self.sigma = values
 
+class EKF:
+
+    def __init__(self, env):
+
+        self.f = env.unwrapped.dynamics
+        self.h = env.unwrapped.observe
+
+        self.dfdx = jacobian(self.f, 0)
+        self.dhdx = jacobian(self.h, 0)
+
+        self.dyn_noise = env.unwrapped.dyn_noise
+        self.obs_noise = env.unwrapped.obs_noise
+
+        self.belief_dim = env.belief_dim
+        self.obs_dim = env.obs_dim
+        self.act_dim = env.act_dim
+
+    def evalf(self, mu_b, u):
+        return self.f(mu_b, u)
+
+    def evalh(self, mu_b):
+        return self.h(mu_b)
+
+    def predict(self, mu_b, sigma_b, u):
+        A = self.dfdx(mu_b, u)
+        sigma_dyn = self.dyn_noise(mu_b, u)
+
+        sigma_b_pr = A @ sigma_b @ A.T + sigma_dyn
+        sigma_b_pr = 0.5 * (sigma_b_pr + sigma_b_pr.T)
+
+        mu_b_pr = self.evalf(mu_b, u)
+
+        return mu_b_pr, sigma_b_pr
+
+    def innovate(self, mu_b, sigma_b, z):
+        H = self.dhdx(mu_b)
+        sigma_obs = self.obs_noise(mu_b)
+
+        K = sigma_b @ H.T @ np.linalg.inv(H @ sigma_b @ H.T + sigma_obs)
+
+        mu_b_in = mu_b + K @ (z - self.evalh(mu_b))
+        sigma_b_in = sigma_b - K @ H @ sigma_b
+        sigma_b_in = 0.5 * (sigma_b_in + sigma_b_in.T)
+
+        return mu_b_in, sigma_b_in
+
+    def inference(self, mu_b, sigma_b, u, z):
+        mu_b, sigma_b = self.predict(mu_b, sigma_b, u)
+        mu_b, sigma_b = self.innovate(mu_b, sigma_b, z)
+        return mu_b, sigma_b
+
 
 class QuadraticBeliefValue:
-    def __init__(self, dm_belief, nb_steps):
-        self.dm_belief = dm_belief
+    def __init__(self, belief_dim, nb_steps):
+        self.belief_dim = belief_dim
         self.nb_steps = nb_steps
 
-        self.S = np.zeros((self.dm_belief, self.dm_belief, self.nb_steps))
-        self.s = np.zeros((self.dm_belief, self.nb_steps, ))
-        self.tau = np.zeros((self.dm_belief, self.nb_steps, ))
+        self.S = np.zeros((self.belief_dim, self.belief_dim, self.nb_steps))
+        self.s = np.zeros((self.belief_dim, self.nb_steps, ))
+        self.tau = np.zeros((self.belief_dim, self.nb_steps, ))
 
 
 class QuadraticCost:
-    def __init__(self, dm_belief, dm_act, nb_steps):
-        self.dm_belief = dm_belief
-        self.dm_act = dm_act
+    def __init__(self, belief_dim, act_dim, nb_steps):
+        self.belief_dim = belief_dim
+        self.act_dim = act_dim
 
         self.nb_steps = nb_steps
 
-        self.Q = np.zeros((self.dm_belief, self.dm_belief, self.nb_steps))
-        self.q = np.zeros((self.dm_belief, self.nb_steps))
+        self.Q = np.zeros((self.belief_dim, self.belief_dim, self.nb_steps))
+        self.q = np.zeros((self.belief_dim, self.nb_steps))
 
-        self.R = np.zeros((self.dm_act, self.dm_act, self.nb_steps))
-        self.r = np.zeros((self.dm_act, self.nb_steps))
+        self.R = np.zeros((self.act_dim, self.act_dim, self.nb_steps))
+        self.r = np.zeros((self.act_dim, self.nb_steps))
 
-        self.P = np.zeros((self.dm_belief, self.dm_act, self.nb_steps))
-        self.p = np.zeros((self.dm_belief * self.dm_belief, self.nb_steps))
+        self.P = np.zeros((self.belief_dim, self.act_dim, self.nb_steps))
+        self.p = np.zeros((self.belief_dim * self.belief_dim, self.nb_steps))
 
     @property
     def params(self):
@@ -58,8 +109,8 @@ class QuadraticCost:
 
 
 class AnalyticalQuadraticCost(QuadraticCost):
-    def __init__(self, f_cost, dm_belief, dm_act, nb_steps):
-        super(AnalyticalQuadraticCost, self).__init__(dm_belief, dm_act, nb_steps)
+    def __init__(self, f_cost, belief_dim, act_dim, nb_steps):
+        super(AnalyticalQuadraticCost, self).__init__(belief_dim, act_dim, nb_steps)
 
         self.f = f_cost
 
@@ -72,15 +123,15 @@ class AnalyticalQuadraticCost(QuadraticCost):
         self.fP = jacobian(jacobian(self.f, 0), 2)
         self.fp = jacobian(self.f, 1)
 
-    def evalf(self, mu_b, sigma_b, u, a):
-        return self.f(mu_b, sigma_b, u, a)
+    def evalf(self, mu_b, sigma_b, u):
+        return self.f(mu_b, sigma_b, u)
 
-    def taylor_expansion(self, b, u, a):
+    def taylor_expansion(self, b, u):
         # padd last time step of action traj.
-        _u = np.hstack((u, np.zeros((self.dm_act, 1))))
+        _u = np.hstack((u, np.zeros((self.act_dim, 1))))
 
         for t in range(self.nb_steps):
-            _in = tuple([b.mu[..., t], b.sigma[..., t], _u[..., t], a[t]])
+            _in = tuple([b.mu[..., t], b.sigma[..., t], _u[..., t]])
 
             self.Q[..., t] = self.fQ(*_in)
             self.q[..., t] = self.fq(*_in)
@@ -90,39 +141,39 @@ class AnalyticalQuadraticCost(QuadraticCost):
 
             self.P[..., t] = self.fP(*_in)
             self.p[..., t] = np.reshape(self.fp(*_in),
-                                        (self.dm_belief * self.dm_belief), order='F')
+                                        (self.belief_dim * self.belief_dim), order='F')
 
 
 class LinearBeliefDynamics:
-    def __init__(self, dm_belief, dm_obs, dm_act, nb_steps):
-        self.dm_belief = dm_belief
-        self.dm_obs = dm_obs
-        self.dm_act = dm_act
+    def __init__(self, belief_dim, obs_dim, act_dim, nb_steps):
+        self.belief_dim = belief_dim
+        self.obs_dim = obs_dim
+        self.act_dim = act_dim
 
         self.nb_steps = nb_steps
 
         # Linearization of dynamics
-        self.A = np.zeros((self.dm_belief, self.dm_belief, self.nb_steps))
-        self.H = np.zeros((self.dm_obs, self.dm_obs, self.nb_steps))
+        self.A = np.zeros((self.belief_dim, self.belief_dim, self.nb_steps))
+        self.H = np.zeros((self.obs_dim, self.obs_dim, self.nb_steps))
 
         # EKF matrices
-        self.K = np.zeros((self.dm_belief, self.dm_obs, self.nb_steps))
-        self.D = np.zeros((self.dm_belief, self.dm_obs, self.nb_steps))
+        self.K = np.zeros((self.belief_dim, self.obs_dim, self.nb_steps))
+        self.D = np.zeros((self.belief_dim, self.obs_dim, self.nb_steps))
 
         # Linearization of belief dynamics
-        self.F = np.zeros((self.dm_belief, self.dm_belief, self.nb_steps))
-        self.G = np.zeros((self.dm_belief, self.dm_act, self.nb_steps))
+        self.F = np.zeros((self.belief_dim, self.belief_dim, self.nb_steps))
+        self.G = np.zeros((self.belief_dim, self.act_dim, self.nb_steps))
 
-        self.T = np.zeros((self.dm_belief * self.dm_belief, self.dm_belief, self.nb_steps))
-        self.U = np.zeros((self.dm_belief * self.dm_belief, self.dm_belief * self.dm_belief, self.nb_steps))
-        self.V = np.zeros((self.dm_belief * self.dm_belief, self.dm_act, self.nb_steps))
+        self.T = np.zeros((self.belief_dim * self.belief_dim, self.belief_dim, self.nb_steps))
+        self.U = np.zeros((self.belief_dim * self.belief_dim, self.belief_dim * self.belief_dim, self.nb_steps))
+        self.V = np.zeros((self.belief_dim * self.belief_dim, self.act_dim, self.nb_steps))
 
-        self.X = np.zeros((self.dm_belief * self.dm_belief, self.dm_belief, self.nb_steps))
-        self.Y = np.zeros((self.dm_belief * self.dm_belief, self.dm_belief * self.dm_belief, self.nb_steps))
-        self.Z = np.zeros((self.dm_belief * self.dm_belief, self.dm_act, self.nb_steps))
+        self.X = np.zeros((self.belief_dim * self.belief_dim, self.belief_dim, self.nb_steps))
+        self.Y = np.zeros((self.belief_dim * self.belief_dim, self.belief_dim * self.belief_dim, self.nb_steps))
+        self.Z = np.zeros((self.belief_dim * self.belief_dim, self.act_dim, self.nb_steps))
 
-        self.sigma_x = np.zeros((self.dm_belief, self.dm_belief, self.nb_steps))
-        self.sigma_z = np.zeros((self.dm_obs, self.dm_obs, self.nb_steps))
+        self.sigma_x = np.zeros((self.belief_dim, self.belief_dim, self.nb_steps))
+        self.sigma_z = np.zeros((self.obs_dim, self.obs_dim, self.nb_steps))
 
     @property
     def params(self):
@@ -138,39 +189,19 @@ class LinearBeliefDynamics:
 
 
 class AnalyticalLinearBeliefDynamics(LinearBeliefDynamics):
-    def __init__(self, f_init, f_dyn, f_obs,
-                 noise_dyn, noise_obs,
-                 dm_belief, dm_obs, dm_act, nb_steps):
-        super(AnalyticalLinearBeliefDynamics, self).__init__(dm_belief, dm_obs, dm_act, nb_steps)
+    def __init__(self, f_dyn, f_obs,
+                 dyn_noise, obs_noise,
+                 belief_dim, obs_dim, act_dim, nb_steps):
+        super(AnalyticalLinearBeliefDynamics, self).__init__(belief_dim, obs_dim, act_dim, nb_steps)
 
-        self.i = f_init
         self.f = f_dyn
         self.h = f_obs
 
-        self.noise_dyn = noise_dyn
-        self.noise_obs = noise_obs
+        self.dyn_noise = dyn_noise
+        self.obs_noise = obs_noise
 
         self.dfdx = jacobian(self.f, 0)
         self.dhdx = jacobian(self.h, 0)
-
-        # # legacy
-        # self.fm = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[0]
-        # self.W = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[1]
-        # self.phi = lambda mu_b, sigma_b, u: self.ekf(mu_b, sigma_b, u)[2]
-        #
-        # self.fF = jacobian(self.fm, 0)
-        # self.fG = jacobian(self.fm, 2)
-        #
-        # self.fX = jacobian(self.W, 0)
-        # self.fY = jacobian(self.W, 1)
-        # self.fZ = jacobian(self.W, 2)
-        #
-        # self.fT = jacobian(self.phi, 0)
-        # self.fU = jacobian(self.phi, 1)
-        # self.fV = jacobian(self.phi, 2)
-
-    def evali(self):
-        return self.i()
 
     def evalf(self, mu_b, u):
         return self.f(mu_b, u)
@@ -178,28 +209,28 @@ class AnalyticalLinearBeliefDynamics(LinearBeliefDynamics):
     def evalh(self, mu_b):
         return self.h(mu_b)
 
-    def ekf(self, mu_b, sigma_b, u):
-        # extended kalman filtering
-        _A = self.dfdx(mu_b, u)
-        _H = self.dhdx(self.evalf(mu_b, u))
+    # belief state dynamics
+    def dynamics(self, mu_b, sigma_b, u):
+        A = self.dfdx(mu_b, u)
+        H = self.dhdx(self.evalf(mu_b, u))
 
-        _sigma_dyn = self.noise_dyn(mu_b, u)
-        _sigma_obs = self.noise_obs(self.evalf(mu_b, u))
+        sigma_dyn = self.dyn_noise(mu_b, u)
+        sigma_obs = self.obs_noise(self.evalf(mu_b, u))
 
-        _D = _A @ sigma_b @ _A.T + _sigma_dyn
-        _D = 0.5 * (_D + _D.T)
+        D = A @ sigma_b @ A.T + sigma_dyn
+        D = 0.5 * (D + D.T)
 
-        _K = _D @ _H.T @ np.linalg.inv(_H @ _D @ _H.T + _sigma_obs)
+        K = D @ H.T @ np.linalg.inv(H @ D @ H.T + sigma_obs)
 
-        # deterministic and stochastic mean dynamics
-        _f = self.evalf(mu_b, u)
-        _W = _K @ _H @ _D
+        # stochastic mean dynamics
+        f = self.evalf(mu_b, u)
+        W = K @ H @ D
 
         # covariance dynamics
-        _phi = _D - _K @ _H @ _D
-        _phi = 0.5 * (_phi + _phi.T)
+        phi = D - K @ H @ D
+        phi = 0.5 * (phi + phi.T)
 
-        return _f, _W, _phi
+        return f, W, phi
 
     def taylor_expansion(self, b, u):
         for t in range(self.nb_steps):
@@ -207,52 +238,36 @@ class AnalyticalLinearBeliefDynamics(LinearBeliefDynamics):
 
             _in_flat, _unflatten = flatten(_in)
 
-            def _ekf_flat(_in_flat):
-                return flatten(self.ekf(*_unflatten(_in_flat)))[0]
+            def _dyn_flat(_in_flat):
+                return flatten(self.dynamics(*_unflatten(_in_flat)))[0]
 
-            _ekf_jac = jacobian(_ekf_flat)
+            _dyn_jac = jacobian(_dyn_flat)
 
-            _grads = _ekf_jac(_in_flat)
-            self.F[..., t] = _grads[:self.dm_belief, :self.dm_belief]
-            self.G[..., t] = _grads[:self.dm_belief, -self.dm_act:]
+            _grads = _dyn_jac(_in_flat)
+            self.F[..., t] = _grads[:self.belief_dim, :self.belief_dim]
+            self.G[..., t] = _grads[:self.belief_dim, -self.act_dim:]
 
-            self.X[..., t] = _grads[self.dm_belief:self.dm_belief + self.dm_belief * self.dm_belief, :self.dm_belief]
-            self.Y[..., t] = _grads[self.dm_belief:self.dm_belief + self.dm_belief * self.dm_belief, self.dm_belief:self.dm_belief + self.dm_belief * self.dm_belief]
-            self.Z[..., t] = _grads[self.dm_belief:self.dm_belief + self.dm_belief * self.dm_belief, -self.dm_act:]
+            self.X[..., t] = _grads[self.belief_dim:self.belief_dim + self.belief_dim * self.belief_dim, :self.belief_dim]
+            self.Y[..., t] = _grads[self.belief_dim:self.belief_dim + self.belief_dim * self.belief_dim, self.belief_dim:self.belief_dim + self.belief_dim * self.belief_dim]
+            self.Z[..., t] = _grads[self.belief_dim:self.belief_dim + self.belief_dim * self.belief_dim, -self.act_dim:]
 
-            self.T[..., t] = _grads[self.dm_belief + self.dm_belief * self.dm_belief:, :self.dm_belief]
-            self.U[..., t] = _grads[self.dm_belief + self.dm_belief * self.dm_belief:, self.dm_belief:self.dm_belief + self.dm_belief * self.dm_belief]
-            self.V[..., t] = _grads[self.dm_belief + self.dm_belief * self.dm_belief:, -self.dm_act:]
-
-            # # legacy
-            # self.F[..., t] = self.fF(_mu_b, _sigma_b, _u)
-            # self.G[..., t] = self.fG(_mu_b, _sigma_b, _u)
-
-            # self.X[..., t] = np.reshape(self.fX(_mu_b, _sigma_b, _u), (self.dm_belief * self.dm_belief, self.dm_belief), order='F')
-            # self.Y[..., t] = np.reshape(self.fY(_mu_b, _sigma_b, _u), (self.dm_belief * self.dm_belief, self.dm_belief * self.dm_belief), order='F')
-            # self.Z[..., t] = np.reshape(self.fZ(_mu_b, _sigma_b, _u), (self.dm_belief * self.dm_belief, self.dm_act), order='F')
-
-            # self.T[..., t] = np.reshape(self.fT(_mu_b, _sigma_b, _u), (self.dm_belief * self.dm_belief, self.dm_belief), order='F')
-            # self.U[..., t] = np.reshape(self.fU(_mu_b, _sigma_b, _u), (self.dm_belief * self.dm_belief, self.dm_belief * self.dm_belief), order='F')
-            # self.V[..., t] = np.reshape(self.fV(_mu_b, _sigma_b, _u), (self.dm_belief * self.dm_belief, self.dm_act), order='F')
+            self.T[..., t] = _grads[self.belief_dim + self.belief_dim * self.belief_dim:, :self.belief_dim]
+            self.U[..., t] = _grads[self.belief_dim + self.belief_dim * self.belief_dim:, self.belief_dim:self.belief_dim + self.belief_dim * self.belief_dim]
+            self.V[..., t] = _grads[self.belief_dim + self.belief_dim * self.belief_dim:, -self.act_dim:]
 
     def forward(self, b, u, t):
-        _u = u[..., t]
-
-        _mu_b, _sigma_b = b.mu[..., t], b.sigma[..., t]
-        _mu_bn, _, _sigma_bn = self.ekf(_mu_b, _sigma_b, _u)
-
-        return _mu_bn, _sigma_bn
+        mu_bn, _, sigma_bn = self.dynamics(b.mu[..., t], b.sigma[..., t], u[..., t])
+        return mu_bn, sigma_bn
 
 
 class LinearControl:
-    def __init__(self, dm_belief, dm_act, nb_steps):
-        self.dm_belief = dm_belief
-        self.dm_act = dm_act
+    def __init__(self, belief_dim, act_dim, nb_steps):
+        self.belief_dim = belief_dim
+        self.act_dim = act_dim
         self.nb_steps = nb_steps
 
-        self.K = np.zeros((self.dm_act, self.dm_belief, self.nb_steps))
-        self.kff = np.zeros((self.dm_act, self.nb_steps))
+        self.K = np.zeros((self.act_dim, self.belief_dim, self.nb_steps))
+        self.kff = np.zeros((self.act_dim, self.nb_steps))
 
     @property
     def params(self):
@@ -263,5 +278,5 @@ class LinearControl:
         self.K, self.kff = values
 
     def action(self, b, alpha, bref, uref, t):
-        dx = b.mu[..., t] - bref[:, t]
-        return uref[:, t] + alpha * self.kff[..., t] + self.K[..., t] @ dx
+        db = b.mu[:, t] - bref.mu[:, t]
+        return uref[:, t] + alpha * self.kff[..., t] + self.K[..., t] @ db
