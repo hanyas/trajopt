@@ -6,9 +6,6 @@ import autograd.numpy as np
 from autograd import jacobian
 from autograd.tracer import getval
 
-from scipy.stats import multivariate_normal
-from scipy.stats import beta
-
 
 def wrap_angle(x):
     # wraps angle between [-pi, pi]
@@ -23,11 +20,11 @@ class Pendulum(gym.Env):
 
         self.dt = 0.01
 
-        self.sigma = 1e-8 * np.eye(self.dm_state)
+        self.sigma = 1e-4 * np.eye(self.dm_state)
 
         # g = [th, thd]
         self.g = np.array([0., 0.])
-        self.gw = np.array([1e1, 1e0])
+        self.gw = np.array([1e0, 1e-1])
 
         # x = [th, thd]
         self.xmax = np.array([np.inf, np.inf])
@@ -35,7 +32,7 @@ class Pendulum(gym.Env):
                                             high=self.xmax)
 
         self.slew_rate = False
-        self.uw = 1e-5 * np.ones((self.dm_act, ))
+        self.uw = 1e-3 * np.ones((self.dm_act, ))
         self.umax = 10. * np.ones((self.dm_act, ))
         self.action_space = spaces.Box(low=-self.umax,
                                        high=self.umax, shape=(1,))
@@ -61,7 +58,7 @@ class Pendulum(gym.Env):
     def dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
-        g, m, l, k = 9.81, 1., 1., 0.025
+        g, m, l, k = 9.81, 1., 1., 1e-3
 
         def f(x, u):
             th, dth = x
@@ -81,7 +78,7 @@ class Pendulum(gym.Env):
     def inverse_dynamics(self, x, u):
         _u = np.clip(u, -self.ulim, self.ulim)
 
-        g, m, l, k = 9.81, 1., 1., 0.025
+        g, m, l, k = 9.81, 1., 1., 1e-3
 
         def f(x, u):
             th, dth = x
@@ -140,20 +137,15 @@ class Pendulum(gym.Env):
         self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma)
         return self.state, [], False, {}
 
-    def evolve(self, u, dist):
-        # state-action dependent noise
-        _sigma = self.noise(self.state, u)
-        # evolve deterministic dynamics
-        self.state = self.linearized(self.state, u, dist)
-        # add noise
-        self.state = self.np_random.multivariate_normal(mean=self.state, cov=_sigma)
-        return self.state, [], False, {}
-
     def init(self):
         return self.x0, self.sigma0
 
     def reset(self):
-        self.state = self.np_random.multivariate_normal(mean=self.x0, cov=self.sigma0)
+        # self.state = self.np_random.multivariate_normal(mean=self.x0, cov=self.sigma0)
+        low, high = np.array([np.pi - np.pi / 10., -0.75]), \
+                    np.array([np.pi + np.pi / 10., 0.75])
+        x0 = self.np_random.uniform(low=low, high=high)
+        self.state = np.hstack((wrap_angle(x0[0]), x0[1]))
         return self.state
 
 

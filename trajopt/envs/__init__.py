@@ -21,14 +21,3 @@ from .lightdark.lightdark import LightDark
 from .car.car import Car
 
 from .robot.robot import Robot
-
-from .quanser.qube.qube import Qube
-from .quanser.qube.qube_rr import QubeRR
-
-from .quanser.cartpole.cartpole import QCartpole
-from .quanser.cartpole.cartpole_rr import QCartpoleRR
-
-from .quanser.qube.qube import QubeTO
-from .quanser.qube.qube import QubeTOWithCartesianCost
-
-from .quanser.cartpole.cartpole import QCartpoleTO

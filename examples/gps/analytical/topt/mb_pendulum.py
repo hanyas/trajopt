@@ -31,7 +31,6 @@ trace = solver.run(nb_iter=25, verbose=True)
 solver.plot()
 
 # plot objective
-
 plt.figure()
 plt.plot(trace)
 plt.show()

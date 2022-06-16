@@ -95,7 +95,7 @@ class iLQR:
         for t in range(self.nb_steps):
             _act = ctl.action(state, alpha, self.xref, self.uref, t)
             action[..., t] = np.clip(_act, -self.ulim, self.ulim)
-            cost[..., t] = self.env_cost(state[..., t], action[..., t], action[..., t - 1], self.weighting[t])
+            cost[..., t] = self.env_cost(state[..., t], action[..., t], action[..., t], self.weighting[t])
             state[..., t + 1] = self.env_dyn(state[..., t], action[..., t])
 
         cost[..., -1] = self.env_cost(state[..., -1], np.zeros((self.dm_act, )), np.zeros((self.dm_act, )), self.weighting[-1])

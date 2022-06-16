@@ -89,7 +89,7 @@ class MBGPS:
 
         self.last_return = - np.inf
 
-    def rollout(self, nb_episodes, stoch=True, env=None):
+    def rollout(self, nb_episodes, stoch=True, env=None, init=None):
         if env is None:
             env = self.env
             env_cost = self.env_cost
@@ -103,7 +103,7 @@ class MBGPS:
                 'c': np.zeros((self.nb_steps + 1, nb_episodes))}
 
         for n in range(nb_episodes):
-            x = env.reset()
+            x = env.reset() if init is None else init
 
             for t in range(self.nb_steps):
                 u = self.ctl.sample(x, t, stoch)
